@@ -56,8 +56,50 @@ class _BaseLLMClient:
             return FormatHandler.process(parsed, fmt_cfg)
 
         content = _get(msg, "content")
+
+        # 检查是否有思考总结（Gemini thinking mode）
+        # 情况 1: content 是列表（parts）
         if isinstance(content, list):
-            content = "".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+            # 提取 thought 和 text parts
+            thoughts = []
+            texts = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "thought":
+                        thought_text = part.get("thought", "")
+                        if thought_text:
+                            thoughts.append(thought_text)
+                    elif part.get("type") == "text":
+                        text_content = part.get("text", "")
+                        if text_content:
+                            texts.append(text_content)
+
+            # 如果有思考总结，格式化为易读文本
+            if thoughts:
+                thought_text = "\n\n".join(thoughts)
+                answer = "".join(texts)
+                formatted_output = f"<LLM_THINKING>\n{thought_text}\n</LLM_THINKING>\n\n{answer}"
+                return formatted_output
+
+            # 没有思考总结，拼接所有文本
+            content = "".join(texts)
+
+        # 情况 2: content 是字符串，可能包含 <thought> 标签
+        elif isinstance(content, str) and "<thought>" in content:
+            import re
+            # 提取 <thought>...</thought> 内容
+            thought_pattern = r'<thought>(.*?)</thought>'
+            thought_matches = re.findall(thought_pattern, content, re.DOTALL)
+
+            if thought_matches:
+                # 移除所有 <thought> 标签，剩余内容为答案
+                answer = re.sub(thought_pattern, '', content, flags=re.DOTALL).strip()
+
+                # 格式化为易读的文本格式
+                thought_text = "\n\n".join(m.strip() for m in thought_matches)
+                formatted_output = f"<LLM_THINKING>\n{thought_text}\n</LLM_THINKING>\n\n{answer}"
+                return formatted_output
+
         return FormatHandler.process(content, fmt_cfg)
 
     def _record_usage(self, resp: Any, trace_id: Optional[str]):

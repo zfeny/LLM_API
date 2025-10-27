@@ -13,7 +13,8 @@ messages:
 generation:
   model: gemini-2.5-flash
   format: markdown
+  think: -1
 """
 
-output = client.invoke_from_yaml(yaml_prompt, dry_run=False)
+output = client.invoke_from_yaml(yaml_prompt, dry_run=False, include_debug=False)
 print(output)
