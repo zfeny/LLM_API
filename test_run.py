@@ -12,8 +12,6 @@ messages:
   - user: 这是第二条消息。请告诉我你是谁。
 generation:
   model: gemini-2.5-flash
-  format:
-    type: json
 """
 
 output = client.invoke_from_yaml(yaml_prompt, dry_run=False)

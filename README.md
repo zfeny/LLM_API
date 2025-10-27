@@ -127,7 +127,7 @@ System/assistant 消息均可选，可按需添加多条。
       - 请介绍 Python 的核心优势
   ```
   同一角色可使用字符串列表追加多条消息。
-- **角色约束**：`role` 仅限 `system` / `user` / `assistant`。若启用格式控制（如 markdown/json），系统提示会自动插入到链首，助手承诺消息会追加到链尾以增强约束。
+- **角色约束**：`role` 仅限 `system` / `user` / `assistant`。若启用格式控制（如 markdown/json），框架会在消息链末尾追加一条额外的 `user` 提醒，用于强化格式要求。
 
 ### 格式控制 `generation.format`
 

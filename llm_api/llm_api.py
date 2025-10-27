@@ -1,10 +1,10 @@
 """极简 YAML→ICS→OpenAI 封装。"""
 from __future__ import annotations
-import atexit, functools, json, logging, os, sqlite3, threading, time, uuid
+import atexit, functools, json, logging, os, random, sqlite3, threading, time, uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union
 
 try:
     from openai import AsyncOpenAI, OpenAI
@@ -52,7 +52,7 @@ def _retry(config: RetryConfig, is_async: bool = False):
         if is_async:
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs) -> T:
-                import asyncio, random
+                import asyncio
                 last_exc = None
                 for attempt in range(config.max_retries + 1):
                     try:
@@ -71,7 +71,6 @@ def _retry(config: RetryConfig, is_async: bool = False):
         else:
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs) -> T:
-                import random
                 last_exc = None
                 for attempt in range(config.max_retries + 1):
                     try:
@@ -200,6 +199,12 @@ class ICSMessage:
         return {"role": self.role, "content": self.content}
 
 @dataclass(slots=True)
+class MessageEntry:
+    """解析阶段内部消息表示，减少中间字典。"""
+    role: str
+    content: str
+
+@dataclass(slots=True)
 class ICSRequest:
     """ICS 请求。"""
     messages: List[ICSMessage]
@@ -280,30 +285,29 @@ class YAMLRequestParser:
         return parsed
 
     @staticmethod
-    def _normalize_messages(raw_msgs: Any) -> List[Dict[str, Any]]:
+    def _normalize_messages(raw_msgs: Any) -> List[MessageEntry]:
         if isinstance(raw_msgs, list):
             entries = YAMLRequestParser._normalize_messages_from_list(raw_msgs)
         elif isinstance(raw_msgs, dict):
             entries = YAMLRequestParser._normalize_messages_from_dict(raw_msgs)
         else:
             raise LLMValidationError("messages 必须是列表或字典")
-        user_present = any(entry["role"] == "user" for entry in entries)
+        user_present = any(entry.role == "user" for entry in entries)
         if not user_present:
             raise LLMValidationError(f"缺少必填字段: {', '.join(YAMLRequestParser.REQUIRED)}")
         return entries
 
     @staticmethod
-    def _normalize_messages_from_list(raw_list: List[Any]) -> List[Dict[str, Any]]:
-        entries: List[Dict[str, Any]] = []
+    def _normalize_messages_from_list(raw_list: List[Any]) -> List[MessageEntry]:
+        entries: List[MessageEntry] = []
         for idx, item in enumerate(raw_list):
             role, content = YAMLRequestParser._extract_role_content(item)
-            entries.append({"role": role, "content": content, "position": idx})
+            entries.append(MessageEntry(role=role, content=content))
         return entries
 
     @staticmethod
-    def _normalize_messages_from_dict(raw_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
-        entries: List[Dict[str, Any]] = []
-        position = 0
+    def _normalize_messages_from_dict(raw_dict: Dict[str, Any]) -> List[MessageEntry]:
+        entries: List[MessageEntry] = []
         for raw_key, raw_val in raw_dict.items():
             role = YAMLRequestParser._normalize_role(raw_key)
             values = raw_val if isinstance(raw_val, list) else [raw_val]
@@ -317,12 +321,13 @@ class YAMLRequestParser:
                 elif not content:
                     # system 允许为空，跳过
                     continue
-                entries.append({"role": role, "content": content, "position": position})
-                position += 1
+                entries.append(MessageEntry(role=role, content=content))
         return entries
 
     @staticmethod
     def _extract_role_content(item: Any) -> tuple[str, str]:
+        if isinstance(item, MessageEntry):
+            return item.role, item.content
         if isinstance(item, dict):
             if "role" in item and "content" in item:
                 role = YAMLRequestParser._normalize_role(item["role"])
@@ -359,11 +364,18 @@ class YAMLRequestParser:
 
 class FormatHandler:
     """格式处理器（指令构建 + 响应校验）。"""
+    _FORMAT_MESSAGE_CACHE: Dict[str, Tuple[ICSMessage, ...]] = {}
+
     @staticmethod
     def build_messages(cfg: Optional[Dict[str, Any]]) -> List[ICSMessage]:
         if not cfg:
             return []
         t = cfg.get("type")
+        cache_key = FormatHandler._cache_key(cfg)
+        if cache_key:
+            cached = FormatHandler._FORMAT_MESSAGE_CACHE.get(cache_key)
+            if cached is not None:
+                return list(cached)
         system_content = None
         if t == "markdown":
             system_content = None
@@ -382,11 +394,13 @@ class FormatHandler:
             schema_text = json.dumps(cfg.get("schema"), ensure_ascii=False) if cfg.get("schema") else ""
             if schema_text:
                 user_content = f"请严格按照以下 JSON Schema 返回完整字段: {schema_text}"
-        messages = []
+        messages: List[ICSMessage] = []
         if system_content:
             messages.append(ICSMessage(role="system", content=system_content))
         if user_content:
             messages.append(ICSMessage(role="user", content=user_content))
+        if cache_key:
+            FormatHandler._FORMAT_MESSAGE_CACHE[cache_key] = tuple(messages)
         return messages
 
     @staticmethod
@@ -442,6 +456,24 @@ class FormatHandler:
             raise LLMValidationError("无返回内容")
         return str(v)
 
+    @staticmethod
+    def _cache_key(cfg: Dict[str, Any]) -> Optional[str]:
+        try:
+            fmt_type = cfg.get("type")
+        except AttributeError:
+            return None
+        if not fmt_type:
+            return None
+        if fmt_type == "json_schema":
+            schema = cfg.get("schema")
+            try:
+                schema_repr = json.dumps(schema, ensure_ascii=False, sort_keys=True)
+            except (TypeError, ValueError):
+                schema_repr = repr(schema)
+            name = cfg.get("name") or ""
+            return f"json_schema::{name}::{schema_repr}"
+        return str(fmt_type)
+
 class ICSBuilder:
     """ICS 构建器。"""
     def __init__(self, config: LLMAPIConfig):
@@ -485,6 +517,9 @@ class ICSBuilder:
     def _build_from_entries(self, entries: List[Dict[str, Any]]) -> List[ICSMessage]:
         messages: List[ICSMessage] = []
         for entry in entries:
+            if isinstance(entry, MessageEntry):
+                messages.append(ICSMessage(role=entry.role, content=entry.content))
+                continue
             role = entry.get("role")
             content = entry.get("content")
             if role not in YAMLRequestParser.MESSAGE_ROLES:
