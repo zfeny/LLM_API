@@ -100,8 +100,8 @@ class YAMLRequestParser:
     def _normalize_messages_from_list(raw_list: List[Any]) -> List[MessageEntry]:
         entries: List[MessageEntry] = []
         for idx, item in enumerate(raw_list):
-            role, content = YAMLRequestParser._extract_role_content(item)
-            entries.append(MessageEntry(role=role, content=content))
+            entry = YAMLRequestParser._extract_role_content(item)
+            entries.append(entry)
         return entries
 
     @staticmethod
@@ -124,20 +124,65 @@ class YAMLRequestParser:
         return entries
 
     @staticmethod
-    def _extract_role_content(item: Any) -> tuple[str, str]:
+    def _extract_role_content(item: Any) -> MessageEntry:
         if isinstance(item, MessageEntry):
-            return item.role, item.content
-        if isinstance(item, dict):
-            if "role" in item and "content" in item:
-                role = YAMLRequestParser._normalize_role(item["role"])
-                content = item["content"]
-            elif len(item) == 1:
-                raw_role, content = next(iter(item.items()))
-                role = YAMLRequestParser._normalize_role(raw_role)
-            else:
-                raise LLMValidationError("messages 列表项需包含 role/content 或单键角色")
-        else:
+            return item
+
+        if not isinstance(item, dict):
             raise LLMValidationError("messages 列表项必须为对象")
+
+        # 检查是否包含 images 字段（多模态消息）
+        # 支持两种格式：
+        # 1. 正确缩进: - images: {urls: [...], contents: [...]}
+        # 2. 平级缩进: - images:\n  urls: [...]\n  contents: [...]
+        if "images" in item:
+            # 格式 1: images 是字典
+            if isinstance(item["images"], dict):
+                images_data = item["images"]
+                urls = images_data.get("urls", [])
+                contents = images_data.get("contents", [])
+            # 格式 2: images 为 null，urls 和 contents 在同级
+            elif item["images"] is None and ("urls" in item or "contents" in item):
+                urls = item.get("urls", [])
+                contents = item.get("contents", [])
+            else:
+                raise LLMValidationError("images 格式错误，需要 urls 和/或 contents 字段")
+
+            if not isinstance(urls, list):
+                raise LLMValidationError("urls 必须为列表")
+            if contents and not isinstance(contents, list):
+                raise LLMValidationError("contents 必须为列表")
+
+            # 提取文本内容
+            text_content = ""
+            if contents:
+                for content_item in contents:
+                    if isinstance(content_item, dict) and "text" in content_item:
+                        text_content = content_item["text"]
+                        break
+                    elif isinstance(content_item, str):
+                        text_content = content_item
+                        break
+
+            # 默认角色为 user（多模态消息通常是用户输入）
+            role = "user"
+
+            return MessageEntry(
+                role=role,
+                content=text_content.strip() if text_content else "",
+                images={"urls": urls, "contents": contents}
+            )
+
+        # 原有的文本消息解析逻辑
+        if "role" in item and "content" in item:
+            role = YAMLRequestParser._normalize_role(item["role"])
+            content = item["content"]
+        elif len(item) == 1:
+            raw_role, content = next(iter(item.items()))
+            role = YAMLRequestParser._normalize_role(raw_role)
+        else:
+            raise LLMValidationError("messages 列表项需包含 role/content、单键角色或 images")
+
         if not isinstance(content, str):
             raise LLMValidationError("消息内容必须为字符串")
         content = content.strip()
@@ -147,7 +192,8 @@ class YAMLRequestParser:
         elif not content:
             # system 允许为空，保持空字符串
             content = ""
-        return role, content
+
+        return MessageEntry(role=role, content=content)
 
     @staticmethod
     def _normalize_role(raw_role: Any) -> str:

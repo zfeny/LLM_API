@@ -5,12 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .exceptions import LLMConfigError
+from dotenv import load_dotenv
 
-try:
-    from dotenv import load_dotenv as _dotenv_load
-except ImportError:
-    _dotenv_load = None
+from .exceptions import LLMConfigError
 
 
 @dataclass
@@ -47,18 +44,16 @@ class LLMAPIConfig:
 
 
 def load_env_file(path: str | os.PathLike[str] = ".env") -> None:
-    """加载 .env 文件。"""
+    """
+    加载 .env 文件到环境变量。
+
+    使用 python-dotenv 库来解析 .env 文件。
+    如果文件不存在，则静默返回。
+
+    Args:
+        path: .env 文件路径，默认为当前目录下的 .env
+    """
     env_path = Path(path)
     if not env_path.exists():
         return
-    if _dotenv_load:
-        _dotenv_load(dotenv_path=env_path, override=False)
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        if not line or line.strip().startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if value and value[0] in ('"', "'") and value[-1] == value[0]:
-            value = value[1:-1]
-        os.environ.setdefault(key.strip(), value)
+    load_dotenv(dotenv_path=env_path, override=False)

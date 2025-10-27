@@ -1,6 +1,9 @@
 """ICS 构建器。"""
 from __future__ import annotations
+import logging
+import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List
 
 from .config import LLMAPIConfig
@@ -8,6 +11,8 @@ from .exceptions import LLMConfigError, LLMValidationError
 from .format import FormatHandler
 from .models import ICSMessage, ICSRequest, MessageEntry
 from .parser import YAMLRequestParser
+
+logger = logging.getLogger(__name__)
 
 
 class ICSBuilder:
@@ -54,7 +59,12 @@ class ICSBuilder:
         messages: List[ICSMessage] = []
         for entry in entries:
             if isinstance(entry, MessageEntry):
-                messages.append(ICSMessage(role=entry.role, content=entry.content))
+                # 检查是否包含图片（多模态消息）
+                if entry.images:
+                    content = self._build_multimodal_content(entry)
+                    messages.append(ICSMessage(role=entry.role, content=content))
+                else:
+                    messages.append(ICSMessage(role=entry.role, content=entry.content))
                 continue
             role = entry.get("role")
             content = entry.get("content")
@@ -64,6 +74,90 @@ class ICSBuilder:
                 raise LLMValidationError("消息内容必须为字符串")
             messages.append(ICSMessage(role=role, content=content))
         return messages
+
+    def _build_multimodal_content(self, entry: MessageEntry) -> List[Dict[str, Any]]:
+        """构建多模态内容列表。"""
+        content_parts = []
+
+        # 添加文本内容（如果有）
+        if entry.content:
+            content_parts.append({
+                "type": "text",
+                "text": entry.content
+            })
+
+        # 处理图片
+        if entry.images:
+            urls = entry.images.get("urls", [])
+            for url in urls:
+                # 处理 URL（本地路径转在线链接）
+                processed_url = self._process_image_url(url)
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": processed_url}
+                })
+
+        return content_parts
+
+    def _process_image_url(self, url: str) -> str:
+        """处理图片 URL，统一转换为 base64 data URI。
+
+        注意：Gemini 的 OpenAI 兼容接口对直接 URL 支持有限，
+        使用 base64 编码是最可靠的方案。
+        """
+        import base64
+        import mimetypes
+
+        # 检查是否为本地文件路径
+        path = Path(url)
+        if path.exists():
+            # 本地文件：读取并转换为 base64
+            try:
+                with open(path, "rb") as image_file:
+                    image_data = image_file.read()
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
+
+                # 检测 MIME 类型
+                mime_type, _ = mimetypes.guess_type(str(path))
+                if not mime_type or not mime_type.startswith('image/'):
+                    mime_type = 'image/jpeg'  # 默认类型
+
+                data_uri = f"data:{mime_type};base64,{base64_image}"
+                logger.info(f"本地图片已编码为 base64: {url} ({len(base64_image)} 字符)")
+                return data_uri
+            except Exception as e:
+                logger.error(f"读取本地图片失败 {url}: {e}")
+                raise LLMValidationError(f"读取本地图片失败: {url}, 错误: {e}")
+
+        # 检查是否为 HTTP(S) URL
+        if url.startswith(("http://", "https://")):
+            # 在线 URL：下载后转换为 base64
+            try:
+                import requests
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+
+                image_data = response.content
+                base64_image = base64.b64encode(image_data).decode('utf-8')
+
+                # 从响应头获取 MIME 类型
+                mime_type = response.headers.get('Content-Type', 'image/jpeg')
+                if not mime_type.startswith('image/'):
+                    mime_type = 'image/jpeg'
+
+                data_uri = f"data:{mime_type};base64,{base64_image}"
+                logger.info(f"在线图片已下载并编码为 base64: {url} ({len(base64_image)} 字符)")
+                return data_uri
+            except ImportError:
+                logger.error("requests 库未安装，无法下载在线图片")
+                raise LLMValidationError("下载在线图片需要 requests 库: pip install requests")
+            except Exception as e:
+                logger.error(f"下载在线图片失败 {url}: {e}")
+                raise LLMValidationError(f"下载在线图片失败: {url}, 错误: {e}")
+
+        # 既不是本地路径也不是 HTTP URL
+        logger.warning(f"无法识别的图片路径: {url}")
+        raise LLMValidationError(f"无法识别的图片路径: {url}")
 
     def _build_from_legacy_dict(self, msgs: Dict[str, Any]) -> List[ICSMessage]:
         base_msgs: List[ICSMessage] = []

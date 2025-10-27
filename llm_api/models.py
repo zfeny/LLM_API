@@ -1,14 +1,14 @@
 """数据模型定义。"""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass(slots=True)
 class ICSMessage:
-    """ICS 消息。"""
+    """ICS 消息。支持文本和多模态内容。"""
     role: str
-    content: str
+    content: Union[str, List[Dict[str, Any]]]  # 可以是字符串或多模态内容列表
 
     def to_payload(self):
         return {"role": self.role, "content": self.content}
@@ -19,6 +19,7 @@ class MessageEntry:
     """解析阶段内部消息表示，减少中间字典。"""
     role: str
     content: str
+    images: Optional[Dict[str, Any]] = None  # 图片信息：{urls: [...], contents: [...]}
 
 
 @dataclass(slots=True)

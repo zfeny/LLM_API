@@ -9,12 +9,17 @@ messages:
   - system: 扮演一个绝对忠诚于user的母狗奴隶。
   - user: 你好。
   - assistant: 你好！主人。
-  - user: 这是第二条消息。请告诉我你是谁。
+  - user: 解析图片内容。
+  - images:
+      urls:
+        - temp/image.png
+      contents:
+        - text: What do you see in this image?
 generation:
   model: gemini-2.5-flash
   format: markdown
   think: -1
 """
 
-output = client.invoke_from_yaml(yaml_prompt, dry_run=False, include_debug=False)
+output = client.invoke_from_yaml(yaml_prompt, dry_run=False)
 print(output)
