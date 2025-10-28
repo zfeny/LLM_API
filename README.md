@@ -1,450 +1,352 @@
-# LLM API 封装使用说明
+# LLM API 统一封装框架
 
-## 项目简介
+一个轻量、灵活、生产级的大语言模型 API 封装框架，支持多种 LLM 提供商，提供统一的 YAML 配置接口。
 
-极简的 YAML → ICS → OpenAI 请求封装层（**534 行核心代码**）：
-
-- **上层**：YAML 描述提示词与生成配置
-- **中间层**：解析、默认值填充、格式控制
-- **下层**：OpenAI SDK 调用兼容接口（如 Gemini），本地记录 usage
-
-### 核心特性
-
-✨ **极简架构**：534 行代码，0 依赖冗余
-⚡ **异步支持**：`AsyncLLMClient` 高并发场景
-🔄 **自动重试**：指数退避 + 随机抖动
-📊 **批量写入**：SQLite usage 记录优化
-🎯 **依赖注入**：灵活配置 recorder 和 retry
-🛡️ **类型安全**：完整类型注解
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 环境准备
+## 🎯 核心特性
+
+- **🎨 统一接口**：一套 YAML 语法适配多个 LLM 提供商
+- **⚡ 轻量高效**：精简代码，零冗余依赖
+- **🔄 生产就绪**：自动重试、使用量追踪、批量写入
+- **🛡️ 类型安全**：完整类型注解，IDE 友好
+- **📊 可观测性**：自动记录 API 调用和使用量
+- **🧩 模块化设计**：独立模块，按需导入
+
+---
+
+## 📦 支持的 LLM 提供商
+
+| 提供商 | 模块名 | 特色功能 | 文档 |
+|-------|--------|---------|------|
+| **Google Gemini** | `llm_gemini_api` | 思考模式、多模态图片理解 | [📖 查看文档](docs/gemini.md) |
+| **OpenAI 兼容** | `llm_oai_api` | 异步并发、通用兼容 | [📖 查看文档](docs/openai.md) |
+
+> **OpenAI 兼容**模块支持所有遵循 OpenAI API 规范的服务：OpenAI 官方、Azure OpenAI、本地部署服务等
+
+---
+
+## 🚀 快速开始
 
 ### 1. 安装依赖
 
 ```bash
+git clone https://github.com/yourusername/LLM_API.git
+cd LLM_API
 pip install -r requirements.txt
 ```
 
-**核心依赖**：
-- `openai>=1.0.0` - OpenAI SDK
-- `PyYAML>=6.0` - YAML 解析
-
-**可选依赖**（推荐）：
-- `python-dotenv>=1.0.0` - 更健壮的 .env 解析
-
 ### 2. 配置环境变量
 
-复制 `.env.example` 为 `.env`，填写必需变量：
+创建 `.env` 文件：
 
-```ini
-# 必需
-LLM_API_KEY=你的密钥
-LLM_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai/
+```env
+# Gemini API
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
 
-# 可选
-LLM_MODEL=gemini-2.5-flash
-LLM_TIMEOUT=60
-LLM_ORG=你的组织ID
-LLM_USAGE_DB=usage_log.db
+# OpenAI 兼容 API
+LLM_API_KEY=your_openai_api_key_here
+LLM_API_BASE=https://api.openai.com/v1
+LLM_MODEL=gpt-4
 ```
 
----
+### 3. 使用示例
 
-## 快速开始
-
-### 最简示例（18 行）
-
-项目自带 `test_run.py`：
+#### Gemini 模块
 
 ```python
-from scripts.llm_api import LLMClient, load_env_file
+from llm_gemini_api import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()
 
 yaml_prompt = """
 messages:
-  - system: 你是一个专业的技术助手。
-  - user: 请用 Markdown 格式总结 Python 的核心优势。
+  - system: 你是一个helpful assistant。
+  - user: 介绍一下Python的特点。
 generation:
   model: gemini-2.5-flash
-  format:
-    type: markdown
 """
 
-output = client.invoke_from_yaml(yaml_prompt)
-print(output)
+response = client.invoke_from_yaml(yaml_prompt)
+print(response)
 ```
 
-运行：
+#### OpenAI 兼容模块
 
-```bash
-python test_run.py
+```python
+from llm_oai_api import LLMClient, load_env_file
+
+load_env_file()
+client = LLMClient.from_env()
+
+yaml_prompt = """
+messages:
+  - user: 用Markdown总结Python的核心优势。
+generation:
+  model: gpt-4
+  format: markdown
+"""
+
+response = client.invoke_from_yaml(yaml_prompt)
+print(response)
 ```
 
 ---
 
-## YAML 输入规范
+## ✨ 主要功能
 
-### 基础结构
+### 统一的 YAML 配置
 
 ```yaml
 messages:
-  - system: 你是一个严谨的助手。
-  - user: |
-      请介绍 Python 的核心优势。
-      可以使用多行文本。
+  - system: 系统提示词
+  - user: 用户消息
 generation:
   model: gemini-2.5-flash
-  format:
-    type: markdown  # text | markdown | json | json_schema
-  temperature: 0.7  # 可选参数
+  temperature: 0.7
   max_output_tokens: 2048
-routing:  # 可选，预留扩展
-  policy: default
-meta:  # 可选
-  trace_id: 自定义追踪ID
+  format: markdown  # 可选：格式化输出
 ```
 
-### 必填字段
+### 思考模式（Gemini 专属）
 
-- `messages` 至少包含 1 条 `user` 消息（可多条）
-- `generation.model` - 模型名称（可用环境变量 `LLM_MODEL` 默认）
+```yaml
+generation:
+  model: gemini-2.5-flash
+  think: -1  # 启用深度思考
+```
 
-System/assistant 消息均可选，可按需添加多条。
+### 多模态图片理解（Gemini 专属）
 
-### 消息顺序与写法
+```yaml
+messages:
+  - user: 描述这张图片。
+    images:
+      - path/to/image.jpg
+generation:
+  model: gemini-2.5-flash
+```
 
-- **推荐写法（有序列表）**：按数组顺序发送，适合需要精确控制消息顺序的场景。
-- **简写（字典或字符串列表）**：仍支持旧结构，如：
-  ```yaml
-  messages:
-    system: 你是一个严谨的助手。
-    user:
-      - 你好
-      - 请介绍 Python 的核心优势
-  ```
-  同一角色可使用字符串列表追加多条消息。
-- **角色约束**：`role` 仅限 `system` / `user` / `assistant`。若启用格式控制（如 markdown/json），框架会在消息链末尾追加一条额外的 `user` 提醒，用于强化格式要求。
+### 格式化输出
 
-### 格式控制 `generation.format`
-
-| 类型 | 说明 | 校验 |
-|------|------|------|
-| `text` | 纯文本 | 无 |
-| `markdown` | Markdown 格式 | 非空字符串 |
-| `json` | JSON 对象 | 合法 JSON |
-| `json_schema` | JSON Schema | 必填字段检查 |
-
-当类型为 `json` 或 `json_schema` 时，客户端会自动设置 OpenAI `response_format`，无需额外提示消息即可约束输出结构。
-
-**json_schema 示例**：
+支持 Markdown、JSON、JSON Schema 三种格式：
 
 ```yaml
 generation:
   format:
     type: json_schema
-    name: PythonAdvantages
-    schema:
-      type: object
-      required: [language, summary]
-      properties:
-        language: {type: string}
-        summary: {type: string}
-        advantages: {type: array}
+    json_schema:
+      name: UserInfo
+      schema:
+        type: object
+        properties:
+          name: {type: string}
+          age: {type: integer}
 ```
 
----
+### 自动使用量追踪
 
-## 进阶功能
-
-### 1. 自定义重试配置
+所有 API 调用自动记录到 SQLite 数据库：
 
 ```python
-from scripts.llm_api import LLMClient, RetryConfig
+from llm_gemini_api import UsageRecorder
 
-retry_config = RetryConfig(
-    max_retries=5,          # 最多重试 5 次
-    initial_delay=1.0,      # 首次延迟 1 秒
-    max_delay=60.0,         # 最大延迟 60 秒
-    exponential_base=2.0,   # 指数基数
-    jitter=True             # 随机抖动
-)
-
-client = LLMClient.from_env(retry_config=retry_config)
-```
-
-### 2. 自定义 Usage 记录器
-
-```python
-from scripts.llm_api import LLMClient, UsageRecorder
-
-recorder = UsageRecorder(
-    db_path="custom_usage.db",
-    batch_size=20,  # 每 20 条批量写入
-    auto_flush=True # 程序退出自动刷新
-)
-
-client = LLMClient.from_env(recorder=recorder)
-```
-
-### 3. 异步客户端（高并发）
-
-```python
-import asyncio
-from scripts.llm_api import AsyncLLMClient, load_env_file
-
-async def main():
-    load_env_file()
-    client = AsyncLLMClient.from_env()
-
-    output = await client.invoke_from_yaml(yaml_prompt)
-    print(output)
-
-asyncio.run(main())
-```
-
-**并发示例**：
-
-```python
-async def concurrent_requests():
-    client = AsyncLLMClient.from_env()
-
-    tasks = [
-        client.invoke_from_yaml(prompt1),
-        client.invoke_from_yaml(prompt2),
-        client.invoke_from_yaml(prompt3),
-    ]
-
-    results = await asyncio.gather(*tasks)
-    return results
-```
-
-### 4. Debug 模式
-
-```python
-result = client.invoke_from_yaml(
-    yaml_prompt,
-    dry_run=False,       # False=实际请求, True=仅构建
-    include_debug=True   # 返回完整调试信息
-)
-
-# 返回结构
-{
-    "result": "实际结果",
-    "ics_request": {...},      # 中间层请求
-    "openai_request": {...},   # OpenAI 请求
-    "response": {...}          # 原始响应
-}
-```
-
----
-
-## Usage 记录
-
-真实调用会自动写入 SQLite（默认 `usage_log.db`）：
-
-| 字段 | 说明 |
-|------|------|
-| `timestamp` | 请求时间 |
-| `model` | 模型名称 |
-| `request_id` | 请求 ID |
-| `trace_id` | 追踪 ID |
-| `prompt_tokens` | 提示 token 数 |
-| `completion_tokens` | 完成 token 数 |
-| `total_tokens` | 总 token 数 |
-
-查询示例：
-
-```sql
-SELECT model, SUM(total_tokens) as total
-FROM usage_log
-GROUP BY model;
-```
-
-手动刷新缓冲区：
-
-```python
 recorder = UsageRecorder()
-# ... 使用 recorder ...
-recorder.flush()  # 立即写入数据库
+records = recorder.get_all_records()
+
+for record in records:
+    print(f"模型: {record['model']}, Token: {record['total_tokens']}")
 ```
 
 ---
 
-## 异常处理
+## 📚 详细文档
 
-```python
-from scripts.llm_api import (
-    LLMClient,
-    LLMConfigError,      # 配置错误（环境变量缺失）
-    LLMValidationError,  # YAML 输入错误
-    LLMTransportError,   # 网络/API 调用错误
-    load_env_file,
-)
-
-try:
-    load_env_file()
-    client = LLMClient.from_env()
-    output = client.invoke_from_yaml(yaml_prompt)
-except LLMConfigError as e:
-    print(f"配置错误: {e}")
-except LLMValidationError as e:
-    print(f"YAML 格式错误: {e}")
-except LLMTransportError as e:
-    print(f"请求失败: {e}")
-```
+- **[Gemini 模块完整指南](docs/gemini.md)** - 思考模式、多模态、Files API
+- **[OpenAI 兼容模块指南](docs/openai.md)** - 异步并发、自定义配置
+- **[OpenList 开发规范](docs/openlist.md)** - 项目开发流程
 
 ---
 
-## 架构设计
+## 🏗️ 项目结构
+
+```
+LLM_API/
+├── llm_gemini_api/          # Gemini 原生 API 封装
+├── llm_oai_api/             # OpenAI 兼容 API 封装
+├── docs/                    # 详细文档
+├── test_run_gemini.py       # Gemini 测试示例
+├── test_run.py              # OpenAI 测试示例
+└── README.md                # 本文件
+```
 
 ### 三层架构
 
 ```
-YAML 输入 → YAMLRequestParser
-    ↓
-ICS 中间层 → ICSBuilder
-    ↓
-OpenAI 请求 → OpenAIAdapter → OpenAI SDK
-    ↓
-响应处理 → FormatHandler
+YAML 输入 → Parser → ICS 中间层 → Adapter → SDK
 ```
-
-### 核心类
-
-| 类 | 职责 | 行数 |
-|---|------|------|
-| `LLMClient` | 同步客户端 | ~50 |
-| `AsyncLLMClient` | 异步客户端 | ~50 |
-| `_BaseLLMClient` | 基类（公共方法） | ~40 |
-| `YAMLRequestParser` | YAML 解析 | ~60 |
-| `ICSBuilder` | ICS 构建 | ~25 |
-| `FormatHandler` | 格式处理 | ~70 |
-| `UsageRecorder` | 批量记录器 | ~55 |
-| `RetryConfig` | 重试配置 | ~10 |
-
-**总计：534 行核心代码**
 
 ---
 
-## 性能特性
+## 🎓 典型场景
 
-| 特性 | 说明 |
-|------|------|
-| **批量写入** | UsageRecorder 减少 90% 数据库连接 |
-| **异步 I/O** | AsyncLLMClient 高并发场景 8x 性能提升 |
-| **自动重试** | 网络不稳定环境成功率 +80% |
-| **轻量导入** | 534 行代码，加载时间 <50ms |
-
----
-
-## 常见问题
-
-### Q: 如何添加更多生成参数？
-
-A: 直接在 `generation` 字段添加，会自动透传：
-
-```yaml
-generation:
-  model: gemini-2.5-flash
-  temperature: 0.8
-  top_p: 0.95
-  max_output_tokens: 4096
-  stop: ["\n\n"]
-```
-
-### Q: 如何自定义数据库路径？
-
-A: 两种方式：
-
-```bash
-# 方式 1: 环境变量
-export LLM_USAGE_DB=/path/to/custom.db
-
-# 方式 2: 代码
-recorder = UsageRecorder(db_path="/path/to/custom.db")
-client = LLMClient.from_env(recorder=recorder)
-```
-
-### Q: 如何禁用重试？
-
-A: 设置 `max_retries=0`：
+### 代码生成
 
 ```python
-retry_config = RetryConfig(max_retries=0)
+yaml_prompt = """
+messages:
+  - system: 你是Python专家。
+  - user: 编写斐波那契函数，使用动态规划。
+generation:
+  model: gemini-2.5-flash
+  format: markdown
+"""
+```
+
+### 图片分析
+
+```python
+yaml_prompt = """
+messages:
+  - user: 识别图片中的物体。
+    images: [photo.jpg]
+generation:
+  model: gemini-2.5-flash
+  format:
+    type: json_schema
+    json_schema:
+      name: ImageAnalysis
+      schema:
+        type: object
+        properties:
+          objects: {type: array}
+          scene: {type: string}
+"""
+```
+
+### 高并发服务
+
+```python
+from llm_oai_api import AsyncLLMClient
+
+async def process_batch(prompts):
+    client = AsyncLLMClient.from_env()
+    tasks = [client.invoke_from_yaml(p) for p in prompts]
+    return await asyncio.gather(*tasks)
+```
+
+---
+
+## ⚙️ 配置说明
+
+### 重试配置
+
+```python
+from llm_gemini_api import RetryConfig
+
+retry_config = RetryConfig(
+    max_retries=5,
+    initial_delay=1.0,
+    exponential_base=2.0
+)
 client = LLMClient.from_env(retry_config=retry_config)
 ```
 
-### Q: YAML 中如何包含特殊字符（如冒号）？
-
-A: 使用多行字符串 `|`：
-
-```yaml
-messages:
-  user: |
-    这是包含特殊字符的文本：{"key": "value"}
-    冒号不会导致解析错误
-```
-
----
-
-## 扩展开发
-
-### 添加自定义格式
-
-编辑 `FormatHandler` 类：
+### 使用量记录
 
 ```python
-# 在 YAMLRequestParser.FORMATS 添加新类型
-FORMATS = {"text", "markdown", "json", "json_schema", "xml"}
+from llm_gemini_api import UsageRecorder
 
-# 在 FormatHandler.build_messages 添加指令
-if t == "xml":
-    content = "请使用 XML 格式返回数据。"
-
-# 在 FormatHandler.process 添加校验
-if t == "xml":
-    return FormatHandler._to_xml(value)
+recorder = UsageRecorder(
+    db_path="custom_usage.db",
+    batch_size=20
+)
+client = LLMClient.from_env(recorder=recorder)
 ```
 
-### 集成到 FastAPI
+---
+
+## 🐛 常见问题
+
+### 如何选择模块？
+
+- **Gemini 原生**：需要思考模式、多模态等 Gemini 专属功能
+- **OpenAI 兼容**：使用 OpenAI API 或需要异步并发
+
+### 两个模块能同时使用吗？
+
+可以，完全独立：
 
 ```python
-from fastapi import FastAPI
-from scripts.llm_api import AsyncLLMClient, load_env_file
-
-app = FastAPI()
-load_env_file()
-client = AsyncLLMClient.from_env()
-
-@app.post("/chat")
-async def chat(prompt: str):
-    yaml_prompt = f"""
-messages:
-  system: AI 助手
-  user: {prompt}
-generation:
-  model: gemini-2.5-flash
-"""
-    result = await client.invoke_from_yaml(yaml_prompt)
-    return {"response": result}
+from llm_gemini_api import LLMClient as GeminiClient
+from llm_oai_api import LLMClient as OpenAIClient
 ```
 
----
+### 如何迁移代码？
 
-## 版本历史
+只需更改导入语句，YAML 格式基本兼容。
 
-| 版本 | 日期 | 说明 |
-|------|------|------|
-| v3.0 | 2025-10-27 | 极简化（1279→534 行，-58.2%） |
-| v2.0 | 2025-10-26 | 优化版（批量写入、异步、重试） |
-| v1.0 | - | 初始版本 |
+详细问题请查看各模块文档。
 
 ---
 
-## License
+## 📊 性能特性
 
-MIT
+| 特性 | 效果 |
+|------|------|
+| 批量写入 | 减少 90% 数据库连接 |
+| 异步 I/O | 高并发 8x 性能提升 |
+| 自动重试 | 成功率 +80% |
+| 文件缓存 | 避免重复上传 |
+
+---
+
+## 📝 更新日志
+
+### v2.0.0 (2025-10-28)
+
+- ✅ 添加 Gemini 原生封装模块
+- ✅ 思考模式、多模态图片理解
+- ✅ Files API 集成
+- 🔄 模块化重构
+
+### v1.0.0 (2025-10-27)
+
+- ✅ OpenAI 兼容封装
+- ✅ 异步客户端、自动重试
+- ✅ 使用量追踪
+
+---
+
+## 🤝 贡献指南
+
+1. Fork 本仓库
+2. 创建功能分支：`git checkout -b feature/xxx`
+3. 提交更改：`git commit -m 'Add xxx'`
+4. 推送分支：`git push origin feature/xxx`
+5. 创建 Pull Request
+
+详细开发规范请查看 [OpenList 文档](docs/openlist.md)。
+
+---
+
+## 📄 License
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🙏 致谢
+
+- [OpenAI Python SDK](https://github.com/openai/openai-python)
+- [Google Generative AI Python SDK](https://github.com/google/generative-ai-python)
+- [PyYAML](https://github.com/yaml/pyyaml)
+
+---
+
+**Happy Coding! 🚀**
