@@ -1,5 +1,5 @@
 """极简测试脚本。"""
-from llm_api import LLMClient, load_env_file
+from llm_oai_api import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()

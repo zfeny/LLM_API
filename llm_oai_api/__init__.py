@@ -1,4 +1,4 @@
-"""极简 YAML→ICS→OpenAI 封装。"""
+"""极简 YAML→ICS→OpenAI 封装（OpenAI 兼容渠道）。"""
 import logging
 
 # 配置日志
