@@ -34,6 +34,7 @@ from .recorder import UsageRecorder
 # 次要导出（可选）
 from .models import ICSMessage, ICSRequest
 from .parser import YAMLRequestParser
+from .preset_loader import load_preset
 
 __all__ = [
     # 客户端
@@ -55,4 +56,5 @@ __all__ = [
     "ICSMessage",
     "ICSRequest",
     "YAMLRequestParser",
+    "load_preset",
 ]

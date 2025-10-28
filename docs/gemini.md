@@ -8,6 +8,7 @@
 - [基础功能](#基础功能)
   - [环境配置](#环境配置)
   - [文本生成](#文本生成)
+  - [预设功能](#预设功能)
   - [流式输出（暂不支持）](#流式输出)
 - [高级功能](#高级功能)
   - [思考模式 (Thinking Mode)](#思考模式-thinking-mode)
@@ -107,6 +108,194 @@ messages:
   - user: 能举个例子吗？
 generation:
   model: gemini-2.5-flash
+```
+
+### 预设功能
+
+`llm_gemini_api` 支持使用预设（Preset）来快速插入预定义的提示词，提高配置复用性和一致性。
+
+#### 什么是预设？
+
+预设是预先定义好的消息模板，存储在 `llm_gemini_api/preset/` 文件夹中的 YAML 文件中。使用预设可以：
+- 快速应用通用的系统提示词
+- 保持多个请求间的风格一致
+- 简化 YAML 配置
+
+#### 内置预设
+
+模块提供了以下内置预设：
+
+| 预设名称 | 说明 | 适用场景 |
+|---------|------|---------|
+| `default` | 通用专业助手 | 一般对话、问答 |
+| `creative` | 创意助手 | 创作、头脑风暴 |
+| `precise` | 严谨助手 | 技术文档、学术内容 |
+| `concise` | 简洁助手 | 快速回答、摘要 |
+| `polite` | 礼貌助手 | 客服、正式沟通 |
+
+#### 使用预设
+
+**基本用法**：
+
+```yaml
+messages:
+  - preset: default
+  - user: 介绍一下Python的特点。
+generation:
+  model: gemini-2.5-flash
+```
+
+**预设 + 自定义 system 消息**：
+
+```yaml
+messages:
+  - preset: creative
+  - system: 你还要特别注重文学性和诗意。
+  - user: 写一首关于秋天的诗。
+generation:
+  model: gemini-2.5-flash
+```
+
+**多个预设组合**：
+
+```yaml
+messages:
+  - preset: polite
+  - preset: concise
+  - user: 解释什么是机器学习。
+generation:
+  model: gemini-2.5-flash
+```
+
+**预设在对话历史中的使用**：
+
+```yaml
+messages:
+  - user: 你好。
+  - assistant: 你好！有什么可以帮助你的吗？
+  - preset: precise
+  - user: 解释量子纠缠的原理。
+generation:
+  model: gemini-2.5-flash
+```
+
+**包含对话示例的预设**：
+
+如果 preset 包含 user/assistant 消息，它们会保持在原位置插入 history：
+
+```yaml
+# 假设 tutorial.yaml 包含：
+# - system: 你是一个教学助手。
+# - user: 请用简单的方式解释。
+# - assistant: 好的，我会用通俗易懂的语言。
+
+messages:
+  - user: 第一个问题
+  - preset: tutorial     # 插入对话示例
+  - user: 第二个问题
+generation:
+  model: gemini-2.5-flash
+```
+
+**处理后的结果**：
+- `system_instruction`: `{"tutorial": "你是一个教学助手。"}`
+- `history`:
+  1. user: 第一个问题
+  2. user: 请用简单的方式解释（来自 tutorial preset）
+  3. model: 好的，我会用通俗易懂的语言（来自 tutorial preset）
+- `current_message`: 第二个问题
+
+#### System 消息自动合并为 JSON 格式
+
+由于 Gemini SDK 只支持一条 `system_instruction`，模块会自动将所有 system 消息（包括预设中的）合并成一个 **JSON 格式的字符串**，并区分来源：
+
+```yaml
+# 输入
+messages:
+  - preset: polite          # 包含: system消息
+  - system: 你是Python专家。
+  - preset: concise         # 包含: system消息
+  - user: 介绍装饰器。
+```
+
+**自动合并后的 system_instruction（JSON字符串）：**
+```json
+{
+  "polite": "请使用礼貌、友好的语气，展现专业和尊重。",
+  "concise": "请保持回答简洁明了，直接切入要点，避免冗长的解释。",
+  "custom": [
+    "你是Python专家。"
+  ]
+}
+```
+
+**JSON 格式说明：**
+- **preset 键**：使用 preset 名称（如 `"polite"`, `"default"`）
+- **preset 值**：该 preset 中所有 system 消息的合并内容（不包含 `- system:` 前缀）
+- **custom 键**：固定为 `"custom"`
+- **custom 值**：自定义 system 消息的数组
+- **特殊字符**：自动转义（如双引号 `"` → `\"`）
+
+**注意事项：**
+- 只有 **system 角色**的消息会被合并到 `system_instruction`
+- preset 中的 **user/assistant 消息**会按 preset 在 YAML 中的位置插入到 history 中
+- 多条 system 消息用 `\n\n` 连接
+
+#### 自定义预设
+
+您可以创建自己的预设文件：
+
+1. 在 `llm_gemini_api/preset/` 目录下创建 YAML 文件（如 `my_preset.yaml`）
+2. 定义消息列表（可包含 system、user、assistant）：
+
+```yaml
+# my_preset.yaml - 只包含 system
+- system: 你是一个专业的代码审查员。
+- system: 请关注代码质量、性能和最佳实践。
+```
+
+或者包含对话示例：
+
+```yaml
+# my_preset_with_examples.yaml - 包含 system + 对话示例
+- system: 你是一个友好的AI助手。
+- user: 你好，请介绍一下你自己。
+- assistant: 你好！我是一个友好的AI助手，我会用示例来说明问题。
+```
+
+3. 在 YAML 提示中使用：
+
+```yaml
+messages:
+  - preset: my_preset
+  - user: 请审查这段代码...
+generation:
+  model: gemini-2.5-flash
+```
+
+**注意**：
+- preset 中的 **system 消息**会被提取到 `system_instruction` JSON 中
+- preset 中的 **user/assistant 消息**会按顺序插入到 history 中
+
+#### 预设加载规则
+
+- **热更新**：每次请求时重新读取预设文件，支持动态修改
+- **错误处理**：如果引用的预设不存在，会抛出 `LLMValidationError` 异常
+- **顺序保持**：预设在 YAML 中的位置决定其展开位置
+
+#### 程序化使用预设
+
+您也可以在 Python 代码中直接加载预设：
+
+```python
+from llm_gemini_api import load_preset
+
+# 加载预设
+preset_messages = load_preset("default")
+
+# 查看预设内容
+for msg in preset_messages:
+    print(f"{msg.role}: {msg.content}")
 ```
 
 ### 流式输出

@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from .exceptions import LLMValidationError
 from .models import MessageEntry
+from .preset_loader import load_preset
 
 try:
     import yaml
@@ -100,8 +101,18 @@ class YAMLRequestParser:
     def _normalize_messages_from_list(raw_list: List[Any]) -> List[MessageEntry]:
         entries: List[MessageEntry] = []
         for idx, item in enumerate(raw_list):
-            entry = YAMLRequestParser._extract_role_content(item)
-            entries.append(entry)
+            # 检查是否是预设引用
+            if isinstance(item, dict) and "preset" in item:
+                preset_name = item.get("preset")
+                if not isinstance(preset_name, str):
+                    raise LLMValidationError("preset 值必须为字符串")
+                # 加载并展开预设（保持在当前位置）
+                preset_entries = load_preset(preset_name.strip())
+                entries.extend(preset_entries)
+            else:
+                # 正常处理消息
+                entry = YAMLRequestParser._extract_role_content(item)
+                entries.append(entry)
         return entries
 
     @staticmethod
@@ -120,7 +131,9 @@ class YAMLRequestParser:
                 elif not content:
                     # system 允许为空，跳过
                     continue
-                entries.append(MessageEntry(role=role, content=content))
+                # 标记自定义system消息的来源
+                source = "custom" if role == "system" else None
+                entries.append(MessageEntry(role=role, content=content, source=source))
         return entries
 
     @staticmethod
@@ -211,7 +224,9 @@ class YAMLRequestParser:
             # system 允许为空，保持空字符串
             content = ""
 
-        return MessageEntry(role=role, content=content)
+        # 标记自定义system消息的来源
+        source = "custom" if role == "system" else None
+        return MessageEntry(role=role, content=content, source=source)
 
     @staticmethod
     def _normalize_role(raw_role: Any) -> str:

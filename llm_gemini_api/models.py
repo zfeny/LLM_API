@@ -20,6 +20,7 @@ class MessageEntry:
     role: str
     content: str
     images: Optional[Dict[str, Any]] = None  # 图片信息：{urls: [...], contents: [...]}
+    source: Optional[str] = None  # 来源信息：preset名称或"custom"
 
 
 @dataclass(slots=True)
