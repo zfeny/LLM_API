@@ -48,29 +48,40 @@ class _BaseLLMClient:
         self._file_uploader = GeminiFileUploader(self._genai_client)
 
     def _extract_result(self, resp: Any, format_config: Optional[Dict[str, Any]] = None) -> Any:
-        """从 Gemini 响应中提取并处理结果。"""
+        """从 Gemini 响应中提取并处理结果（支持文本和图片）。"""
         try:
-            # 检查是否有思考内容（Thinking mode）
+            # 检查响应结构
+            if not hasattr(resp, "candidates") or not resp.candidates:
+                raise LLMTransportError("响应中没有候选结果")
+
+            candidate = resp.candidates[0]
+            if not hasattr(candidate, "content") or not hasattr(candidate.content, "parts"):
+                raise LLMTransportError("响应结构异常")
+
+            parts = candidate.content.parts
+
             thoughts = []
             answer_parts = []
+            image_parts = []
 
-            # 尝试从 response.candidates[0].content.parts 提取
-            try:
-                if hasattr(resp, "candidates") and resp.candidates:
-                    candidate = resp.candidates[0]
-                    if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
-                        for part in candidate.content.parts:
-                            # 检查是否是思考内容
-                            if hasattr(part, "thought") and part.thought:
-                                # 这是思考总结
-                                if hasattr(part, "text") and part.text:
-                                    thoughts.append(part.text)
-                            else:
-                                # 这是答案内容
-                                if hasattr(part, "text") and part.text:
-                                    answer_parts.append(part.text)
-            except Exception as e:
-                logger.debug("无法从 parts 提取思考内容，回退到简单文本提取: %s", e)
+            for part in parts:
+                inline_data = getattr(part, "inline_data", None)
+                if inline_data is not None:
+                    image_parts.append(part)
+                    continue
+
+                text_value = getattr(part, "text", None)
+                if getattr(part, "thought", False):
+                    if text_value:
+                        thoughts.append(text_value)
+                    continue
+
+                if text_value:
+                    answer_parts.append(text_value)
+
+            # 如果包含图片，使用图片提取逻辑
+            if image_parts:
+                return self._extract_image_result(image_parts, answer_parts, thoughts, format_config)
 
             # 如果有思考内容，格式化输出
             if thoughts:
@@ -89,13 +100,143 @@ class _BaseLLMClient:
                     return processed_answer
 
             # 没有思考内容，使用标准提取
-            raw_text = resp.text
+            raw_text = "".join(answer_parts) if answer_parts else resp.text
             processed = GeminiFormatHandler.process_response(raw_text, format_config)
 
             return processed
         except Exception as e:
             logger.error("提取响应结果失败: %s", e)
             raise LLMTransportError(f"提取响应结果失败: {e}") from e
+
+    def _extract_image_result(
+        self,
+        image_parts: list,
+        texts: list[str],
+        thoughts: list[str],
+        format_config: Optional[Dict[str, Any]],
+    ) -> Any:
+        """提取图片响应，保存并上传到OpenList。"""
+        from datetime import datetime
+
+        images = []
+
+        # 分离文本、思考和图片
+        for part in image_parts:
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data is None:
+                continue
+            images.append({
+                "mime_type": getattr(inline_data, "mime_type", None),
+                "data": getattr(inline_data, "data", None)
+            })
+
+        # 处理图片：保存并上传
+        image_results = []
+        for img in images:
+            try:
+                # 生成时间戳文件名
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+                # 保存到本地
+                local_path = self._save_generated_image(img["data"], timestamp)
+                logger.info("图片已保存到本地: %s", local_path)
+
+                # 根据配置决定是否上传到OpenList
+                online_url = None
+                if self._config.image_upload_enabled:
+                    online_url = self._upload_to_openlist(local_path)
+                    logger.info("图片已上传到OpenList: %s", online_url)
+                else:
+                    logger.info("图片上传已禁用，仅保存本地文件")
+
+                image_results.append({
+                    "local_path": local_path,
+                    "online_url": online_url,
+                    "mime_type": img["mime_type"]
+                })
+            except Exception as e:
+                logger.error("图片处理失败: %s", e)
+                # 即使失败也继续处理其他图片
+                image_results.append({
+                    "local_path": None,
+                    "online_url": None,
+                    "error": str(e)
+                })
+
+        # 根据响应模式返回
+        if texts and images:
+            # both模式：同时返回文本和图片
+            text_content = "\n".join(texts)
+
+            # 如果有思考内容，添加到文本中
+            if thoughts:
+                thought_text = "\n\n".join(thoughts)
+                text_content = f"<GEMINI_THINKING>\n{thought_text}\n</GEMINI_THINKING>\n\n{text_content}"
+
+            # 处理文本格式
+            processed_text = GeminiFormatHandler.process_response(text_content, format_config)
+
+            return {
+                "text": processed_text,
+                "images": image_results
+            }
+        elif images:
+            # image模式：仅返回图片
+            return image_results[0] if len(image_results) == 1 else image_results
+        else:
+            # 回退到文本（不应该发生，但为了安全）
+            return "\n".join(texts)
+
+    def _save_generated_image(self, image_data: bytes, timestamp: str) -> str:
+        """保存生成的图片到本地目录。
+
+        目录结构: {GEMINI_IMAGE_OUTPUT|temp/output/image}/{年份}/{年月日}/<timestamp>.png
+
+        Args:
+            image_data: 图片的字节数据（bytes），直接来自 part.inline_data.data
+            timestamp: 时间戳字符串，用于文件命名
+
+        Returns:
+            本地文件路径
+        """
+        import os
+
+        # 创建输出目录
+        base_dir = os.environ.get("GEMINI_IMAGE_OUTPUT") or "temp/output/image"
+        year = timestamp[:4]
+        date = timestamp[:8]
+        output_dir = os.path.join(base_dir, year, date)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 生成文件名
+        filename = f"{timestamp}.png"
+        local_path = os.path.join(output_dir, filename)
+
+        # 直接保存字节数据（不需要base64解码）
+        with open(local_path, "wb") as f:
+            f.write(image_data)
+
+        return local_path
+
+    def _upload_to_openlist(self, local_path: str) -> str:
+        """上传图片到OpenList，自动按年/月组织目录。"""
+        try:
+            from openlist_api import OpenListClient
+
+            # 使用环境变量中的配置创建客户端
+            openlist_client = OpenListClient.from_env()
+
+            # 上传并获取分享链接（自动按年/月组织目录）
+            online_url = openlist_client.upload_image(local_path)
+
+            return online_url
+        except ImportError:
+            logger.warning("openlist_api 模块未安装，跳过上传")
+            return f"(未上传: {local_path})"
+        except Exception as e:
+            # 如果上传失败，返回本地路径
+            logger.warning("OpenList上传失败: %s", e)
+            return f"(上传失败: {local_path})"
 
     def _record_usage(self, resp: Any, trace_id: Optional[str], model: str):
         """记录使用量。"""
@@ -246,6 +387,16 @@ class LLMClient(_BaseLLMClient):
                     config_kwargs["response_mime_type"] = generation_config["response_mime_type"]
                 if "response_schema" in generation_config:
                     config_kwargs["response_schema"] = generation_config["response_schema"]
+
+                # 处理图片生成配置
+                if "response_modalities" in generation_config:
+                    config_kwargs["response_modalities"] = generation_config["response_modalities"]
+
+                if "image_config" in generation_config:
+                    img_cfg = generation_config["image_config"]
+                    config_kwargs["image_config"] = genai_types.ImageConfig(
+                        aspect_ratio=img_cfg["aspect_ratio"]
+                    )
 
                 # 构建完整的消息列表（system_instruction + history + current）
                 contents = list(history)

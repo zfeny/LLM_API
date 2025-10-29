@@ -88,15 +88,37 @@ class GeminiAdapter:
             if key in gen
         }
 
+        # 2.2 处理图片生成配置
+        response_mode = gen.get("response", "text")  # text/image/both，默认text
+        image_cfg = gen.get("image", {})
+
+        # 处理 thinking 配置（图片生成模式不支持thinking）
         think_value = gen.get("think")
-        if think_value is not None:
+        if think_value is not None and response_mode == "text":
             thinking_config = {"thinking_budget": think_value}
             # 当 think=-1 时，启用思考总结
             if think_value == -1:
                 thinking_config["include_thoughts"] = True
             generation_config["thinking_config"] = thinking_config
 
-        # 2.2 合并 format 相关的 generation_config（用于平台原生模式）
+        # 如果需要生成图片，配置 response_modalities
+        if response_mode == "image":
+            generation_config["response_modalities"] = ["Image"]
+        elif response_mode == "both":
+            generation_config["response_modalities"] = ["Text", "Image"]
+        # text模式不需要设置（默认为Text）
+
+        # 如果需要生成图片，配置 image_config
+        if response_mode in ("image", "both"):
+            aspect_ratio = image_cfg.get("ratio", "1:1")
+            # 确保aspect_ratio是字符串类型（YAML可能将16:9解析为数字）
+            if not isinstance(aspect_ratio, str):
+                aspect_ratio = str(aspect_ratio)
+            generation_config["image_config"] = {
+                "aspect_ratio": aspect_ratio
+            }
+
+        # 2.3 合并 format 相关的 generation_config（用于平台原生模式）
         format_gen_config = GeminiFormatHandler.get_generation_config(format_config)
         if format_gen_config:
             generation_config.update(format_gen_config)

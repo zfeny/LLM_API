@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from pathlib import Path
-from typing import Any, Optional
+from types import SimpleNamespace
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,18 @@ class GeminiFileUploader:
 
     def upload_file(self, file_path: str) -> Any:
         """Upload a file to Gemini Files API and cache the handle."""
+        if not self.is_local_file(file_path):
+            cached = self._uploaded_files.get(file_path)
+            if cached is not None:
+                logger.debug("使用缓存的远程文件对象: %s", file_path)
+                return cached
+
+            mime_type, _ = mimetypes.guess_type(file_path)
+            handle = SimpleNamespace(uri=file_path, mime_type=mime_type or "application/octet-stream")
+            self._uploaded_files[file_path] = handle
+            logger.debug("使用远程文件URI: %s (%s)", handle.uri, handle.mime_type)
+            return handle
+
         path = Path(file_path)
         normalized_path = str(path.resolve())
 
