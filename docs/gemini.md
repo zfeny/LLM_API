@@ -14,6 +14,7 @@
   - [思考模式 (Thinking Mode)](#思考模式-thinking-mode)
   - [格式化输出](#格式化输出)
   - [多模态图片理解](#多模态图片理解)
+  - [工具调用](#工具调用)
 - [使用量追踪](#使用量追踪)
 - [API 参考](#api-参考)
 - [最佳实践](#最佳实践)
@@ -604,6 +605,72 @@ generation:
 > - 图片会上传到 Gemini Files API（即使 `dry_run=True` 也会上传）
 > - 上传的文件对象会被缓存，避免重复上传
 > - 确保图片路径正确且文件存在
+
+### 工具调用
+
+Gemini 2.5 系列模型支持通过工具扩展搜索能力。模块在 `generation.tools` 中提供声明式配置，目前内置了 [Google Search Retrieval](https://ai.google.dev/gemini-api/docs/google-search) 与 [URL Context](https://ai.google.dev/gemini-api/docs/url-context)。
+
+```yaml
+messages:
+  - user: 帮我列出最近的火山喷发新闻并附上链接
+generation:
+  model: gemini-2.5-flash
+  tools:
+    - search                   # 简写：等价于 type: google_search
+    - search: in_line          # 可选：开启结果内嵌引用
+    - url_context             # 启用 URL Context（自动从提示中的链接抓取内容）
+    - google_search:
+        exclude_domains:
+          - example.com
+    - google_search_retrieval:
+        mode: dynamic          # 可选，映射到 MODE_DYNAMIC
+        dynamic_threshold: 0.2 # 可选，控制触发阈值
+```
+
+- `type`：填写 `google_search`（或使用 `- search` 简写）启用 Google Search 工具，也可显式写 `google_search_retrieval`。
+- `search: in_line`：将同一工具声明设置为 `in_line`（或 `inline`）时，会在回答中内嵌引用标记。
+- `exclude_domains`：Google Search 支持排除域名列表。
+- `mode`：用于 Google Search Retrieval，映射到 `DynamicRetrievalConfigMode`，常用值 `dynamic`；未设置时由服务端决定是否使用。
+- `dynamic_threshold`：可选浮点数，用于调整动态检索触发阈值。
+- `url_context`：允许模型直接访问提示或附件中提到的公开链接，无需额外上传内容。
+
+```yaml
+generation:
+  model: gemini-2.5-flash
+  tools:
+    - search: inline           # 同义写法
+    - url_context
+    - google_search:
+        options:
+          exclude_domains:
+            - example.com
+    - google_search_retrieval:
+        options:
+          mode: dynamic
+          dynamic_threshold: 0.15
+```
+
+### 预设宏 (Macros)
+
+YAML 预设支持在组装前执行内置宏，常见用法如随机前缀、临时编号等。宏会在请求真正发送之前求值，如果遇到未知指令会保留原文本并输出警告日志。
+
+```yaml
+messages:
+  - user: |
+      [System Noise Buffer - Ignore]
+      {{random::a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z}}
+      {{roll 1d999999}}
+      {{random::A,B,C,D,E,F}}
+      {{roll 1d999999}}
+      {{random::1,2,3,4,5,6,7,8,9}}
+      {{roll 1d999999}}
+      [End Buffer]
+```
+
+- `{{random::...}}`：从给定列表中随机选择一个元素，支持逗号或 `::` 分隔，并允许嵌套其他宏。
+- `{{roll 1d999999}}`：掷骰子语法 `NdM`，此例为在 1~999999 之间生成一个整数；次数省略时默认为 1。
+
+> 📌 这些宏会在 YAML 解析阶段展开，因此同一请求内每处宏只求值一次。待扩展的新指令可直接在代码中新增宏实现；未实现的宏在日志中会收到 `WARN` 提醒，方便排查。
 
 ---
 

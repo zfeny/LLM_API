@@ -19,7 +19,7 @@ class GeminiFileUploader:
 
     def upload_file(self, file_path: str) -> Any:
         """Upload a file to Gemini Files API and cache the handle."""
-        if not self.is_local_file(file_path):
+        if self._is_remote_uri(file_path):
             cached = self._uploaded_files.get(file_path)
             if cached is not None:
                 logger.debug("使用缓存的远程文件对象: %s", file_path)
@@ -65,6 +65,10 @@ class GeminiFileUploader:
         if path.startswith(("http://", "https://")):
             return False
         return Path(path).exists()
+
+    @staticmethod
+    def _is_remote_uri(path: str) -> bool:
+        return path.startswith(("http://", "https://"))
 
 
 __all__ = ["GeminiFileUploader"]

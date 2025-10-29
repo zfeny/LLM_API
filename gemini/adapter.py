@@ -125,6 +125,14 @@ class GeminiAdapter:
 
         payload = {"model": model, "history": gemini_history, "current_message": current_message}
 
+        tools_config = gen.get("tools")
+        if tools_config:
+            payload_tools, inline_citations = GeminiAdapter._build_tools(tools_config)
+            if payload_tools:
+                payload["tools"] = payload_tools
+            if inline_citations:
+                payload["inline_citations"] = True
+
         if system_instruction:
             payload["system_instruction"] = system_instruction
 
@@ -231,3 +239,205 @@ class GeminiAdapter:
                 mime_type=uploaded_file.mime_type,
             )
         raise LLMValidationError(f"未知的多模态类型: {kind}")
+
+    @staticmethod
+    def _build_tools(raw_tools: Any) -> tuple[List[genai_types.Tool], bool]:
+        if not isinstance(raw_tools, list):
+            raise LLMValidationError("generation.tools 必须为列表")
+
+        tools: List[genai_types.Tool] = []
+        inline_citations = False
+
+        for tool_cfg in raw_tools:
+            normalized = GeminiAdapter._normalize_tool_config(tool_cfg)
+            if normalized.pop("_inline_citations", False):
+                inline_citations = True
+            tool_type_raw = normalized["type"]
+
+            tool_type = tool_type_raw.strip().lower()
+
+            if tool_type == "google_search":
+                tools.append(GeminiAdapter._build_google_search(normalized))
+            elif tool_type == "google_search_retrieval":
+                tools.append(GeminiAdapter._build_google_search_retrieval(normalized))
+            elif tool_type == "url_context":
+                tools.append(GeminiAdapter._build_url_context(normalized))
+            else:
+                raise LLMValidationError(f"不支持的工具类型: {tool_type_raw}")
+
+        return tools, inline_citations
+
+    @staticmethod
+    def _build_google_search(tool_cfg: Dict[str, Any]) -> genai_types.Tool:
+        options = tool_cfg.get("options", {})
+        if options and not isinstance(options, dict):
+            raise LLMValidationError("google_search 工具 options 必须为对象")
+
+        def pick(key: str) -> Any:
+            if key in tool_cfg and tool_cfg[key] is not None:
+                return tool_cfg[key]
+            if isinstance(options, dict):
+                return options.get(key)
+            return None
+
+        kwargs: Dict[str, Any] = {}
+
+        exclude_domains = pick("exclude_domains")
+        if exclude_domains is not None:
+            if not isinstance(exclude_domains, list) or not all(isinstance(item, str) for item in exclude_domains):
+                raise LLMValidationError("exclude_domains 必须为字符串列表")
+            kwargs["exclude_domains"] = exclude_domains
+
+        time_filter = pick("time_range_filter")
+        if time_filter is not None:
+            kwargs["timeRangeFilter"] = GeminiAdapter._parse_time_range_filter(time_filter)
+
+        google_tool = genai_types.GoogleSearch(**kwargs)
+        return genai_types.Tool(googleSearch=google_tool)
+
+    @staticmethod
+    def _build_google_search_retrieval(tool_cfg: Dict[str, Any]) -> genai_types.Tool:
+        options = tool_cfg.get("options", {})
+        if options and not isinstance(options, dict):
+            raise LLMValidationError("google_search 工具 options 必须为对象")
+
+        mode_value = tool_cfg.get("mode") or (options.get("mode") if isinstance(options, dict) else None)
+        threshold_value = (
+            tool_cfg.get("dynamic_threshold")
+            if tool_cfg.get("dynamic_threshold") is not None
+            else (options.get("dynamic_threshold") if isinstance(options, dict) else None)
+        )
+
+        dynamic_cfg = None
+        if mode_value or threshold_value is not None:
+            mode_enum = None
+            if mode_value:
+                mode_token = str(mode_value).strip().upper()
+                if not mode_token.startswith("MODE_"):
+                    mode_token = f"MODE_{mode_token}"
+                mode_enum = getattr(genai_types.DynamicRetrievalConfigMode, mode_token, None)
+                if mode_enum is None:
+                    raise LLMValidationError(f"不支持的 google_search mode: {mode_value}")
+
+            dynamic_kwargs: Dict[str, Any] = {}
+            if mode_enum is not None:
+                dynamic_kwargs["mode"] = mode_enum
+            if threshold_value is not None:
+                try:
+                    dynamic_kwargs["dynamicThreshold"] = float(threshold_value)
+                except (TypeError, ValueError) as exc:  # noqa: BLE001
+                    raise LLMValidationError("dynamic_threshold 必须为数字") from exc
+
+            dynamic_cfg = genai_types.DynamicRetrievalConfig(**dynamic_kwargs)
+
+        search_kwargs: Dict[str, Any] = {}
+        if dynamic_cfg is not None:
+            search_kwargs["dynamicRetrievalConfig"] = dynamic_cfg
+
+        google_tool = genai_types.GoogleSearchRetrieval(**search_kwargs)
+        return genai_types.Tool(googleSearchRetrieval=google_tool)
+
+    @staticmethod
+    def _build_url_context(tool_cfg: Dict[str, Any]) -> genai_types.Tool:
+        options = tool_cfg.get("options", {})
+        if options and not isinstance(options, dict):
+            raise LLMValidationError("url_context 工具 options 必须为对象")
+
+        urls = tool_cfg.get("urls")
+        if urls is None and isinstance(options, dict):
+            urls = options.get("urls")
+
+        if urls is not None:
+            if not isinstance(urls, list) or not all(isinstance(item, str) for item in urls):
+                raise LLMValidationError("url_context.urls 必须为字符串列表")
+            if urls:
+                logger.warning(
+                    "url_context 工具无需显式 urls 参数。请确保在提示或附加内容中包含链接。将忽略: %s",
+                    urls,
+                )
+
+        return genai_types.Tool(url_context=genai_types.UrlContext())
+
+    @staticmethod
+    def _normalize_tool_config(tool_cfg: Any) -> Dict[str, Any]:
+        alias_map = {
+            "search": "google_search",
+            "google_search": "google_search",
+            "google_search_retrieval": "google_search_retrieval",
+            "url_context": "url_context",
+        }
+
+        if isinstance(tool_cfg, str):
+            alias = tool_cfg.strip().lower()
+            mapped = alias_map.get(alias)
+            if not mapped:
+                raise LLMValidationError(f"不支持的工具类型: {tool_cfg}")
+            return {"type": mapped}
+
+        if isinstance(tool_cfg, dict):
+            cfg = dict(tool_cfg)
+            inline_flag = False
+
+            if "type" in cfg and isinstance(cfg["type"], str):
+                mapped = alias_map.get(cfg["type"].strip().lower())
+                if not mapped:
+                    raise LLMValidationError(f"不支持的工具类型: {cfg['type']}")
+                cfg["type"] = mapped
+            elif len(cfg) == 1:
+                key, value = next(iter(cfg.items()))
+                alias = alias_map.get(str(key).strip().lower())
+                if not alias:
+                    raise LLMValidationError(f"不支持的工具类型: {key}")
+                cfg = {"type": alias}
+                inline_flag = GeminiAdapter._parse_inline_flag(value)
+                if isinstance(value, dict):
+                    cfg.update(value)
+            else:
+                raise LLMValidationError("工具配置对象缺少 type 字段")
+
+            if "inline_citations" in cfg:
+                inline_flag = bool(cfg.pop("inline_citations"))
+            if inline_flag:
+                cfg["_inline_citations"] = True
+            return cfg
+
+        raise LLMValidationError("tools 列表项必须是字符串或对象")
+
+    @staticmethod
+    def _parse_inline_flag(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            token = value.strip().lower()
+            return token in {"inline", "in_line", "true", "yes", "on", "1"}
+        return False
+
+    @staticmethod
+    def _parse_time_range_filter(raw: Any) -> genai_types.Interval:
+        if isinstance(raw, genai_types.Interval):
+            return raw
+        if isinstance(raw, dict):
+            start_raw = raw.get("start") or raw.get("start_time") or raw.get("startTime")
+            end_raw = raw.get("end") or raw.get("end_time") or raw.get("endTime")
+
+            from datetime import datetime
+
+            def convert(value: Any) -> Optional[datetime]:
+                if value is None:
+                    return None
+                if isinstance(value, datetime):
+                    return value
+                if isinstance(value, str):
+                    try:
+                        return datetime.fromisoformat(value)
+                    except ValueError as exc:  # noqa: BLE001
+                        raise LLMValidationError("time_range_filter 时间需要 ISO 格式字符串") from exc
+                raise LLMValidationError("time_range_filter 时间必须为 datetime 或 ISO 字符串")
+
+            start_dt = convert(start_raw)
+            end_dt = convert(end_raw)
+            return genai_types.Interval(start_time=start_dt, end_time=end_dt)
+
+        raise LLMValidationError("time_range_filter 必须为 Interval 或字典")

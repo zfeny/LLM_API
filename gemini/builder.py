@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Dict, List
 
 from llm.exceptions import LLMConfigError, LLMValidationError
+from llm.macros import render_macros
 from llm.models import ICSMessage, ICSRequest, MessageEntry
 from llm.parser import YAMLRequestParser
 
@@ -66,17 +67,26 @@ class ICSBuilder:
                             if preset_name not in preset_sources:
                                 # 读取preset的system内容（只提取system角色的内容，不包含前缀）
                                 try:
-                                    preset_sources[preset_name] = get_preset_system_content(preset_name)
+                                    raw_content = get_preset_system_content(preset_name)
+                                    preset_sources[preset_name] = render_macros(raw_content) if raw_content else raw_content
                                 except Exception as exc:  # noqa: BLE001
                                     logger.warning("无法读取preset '%s' 的system内容: %s", preset_name, exc)
                                     # 如果读取失败，将内容加入custom
-                                    custom_systems.append(entry.content)
+                                    custom_systems.append(render_macros(entry.content))
                         else:
                             # 自定义system消息
-                            custom_systems.append(entry.content)
+                            custom_systems.append(render_macros(entry.content))
                 else:
                     # 其他消息保留
-                    other_entries.append(entry)
+                    processed_content = render_macros(entry.content) if entry.content else entry.content
+                    other_entries.append(
+                        MessageEntry(
+                            role=entry.role,
+                            content=processed_content,
+                            images=entry.images,
+                            source=entry.source,
+                        )
+                    )
             else:
                 # 兼容旧格式（字典）
                 role = entry.get("role")
@@ -87,9 +97,11 @@ class ICSBuilder:
                     raise LLMValidationError("消息内容必须为字符串")
                 if role == "system" and content.strip():
                     # 旧格式的system消息视为custom
-                    custom_systems.append(content)
+                    custom_systems.append(render_macros(content))
                 elif role != "system":
-                    other_entries.append(MessageEntry(role=role, content=content))
+                    other_entries.append(
+                        MessageEntry(role=role, content=render_macros(content), images=None, source=None)
+                    )
 
         # 第二步：构建最终消息列表
         messages: List[ICSMessage] = []
@@ -99,8 +111,8 @@ class ICSBuilder:
             system_dict = {}
 
             # 添加preset来源的内容
-            for preset_name, raw_content in preset_sources.items():
-                system_dict[preset_name] = raw_content
+            for preset_name, rendered_content in preset_sources.items():
+                system_dict[preset_name] = rendered_content
 
             # 添加custom来源的内容
             if custom_systems:
@@ -142,9 +154,9 @@ class ICSBuilder:
         base_msgs: List[ICSMessage] = []
         system_msg = msgs.get("system")
         if isinstance(system_msg, str) and system_msg.strip():
-            base_msgs.append(ICSMessage(role="system", content=system_msg.strip()))
+            base_msgs.append(ICSMessage(role="system", content=render_macros(system_msg.strip())))
         user_msg = msgs.get("user")
         if not isinstance(user_msg, str) or not user_msg.strip():
             raise LLMValidationError("user 必须为非空字符串")
-        base_msgs.append(ICSMessage(role="user", content=user_msg.strip()))
+        base_msgs.append(ICSMessage(role="user", content=render_macros(user_msg.strip())))
         return base_msgs

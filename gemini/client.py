@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from llm.config import RetryConfig
 from llm.exceptions import LLMConfigError, LLMTransportError, LLMValidationError
@@ -47,10 +47,15 @@ class _BaseLLMClient:
         # 初始化文件上传器（用于多模态功能）
         self._file_uploader = GeminiFileUploader(self._genai_client)
 
-    def _extract_result(self, resp: Any, format_config: Optional[Dict[str, Any]] = None) -> Any:
+    def _extract_result(
+        self,
+        resp: Any,
+        format_config: Optional[Dict[str, Any]] = None,
+        *,
+        inline_citations: bool = False,
+    ) -> Any:
         """从 Gemini 响应中提取并处理结果（支持文本和图片）。"""
         try:
-            # 检查响应结构
             if not hasattr(resp, "candidates") or not resp.candidates:
                 raise LLMTransportError("响应中没有候选结果")
 
@@ -60,11 +65,11 @@ class _BaseLLMClient:
 
             parts = candidate.content.parts
 
-            thoughts = []
-            answer_parts = []
-            image_parts = []
+            thoughts: List[str] = []
+            answer_parts_info: List[Dict[str, Any]] = []
+            image_parts: List[Any] = []
 
-            for part in parts:
+            for idx, part in enumerate(parts):
                 inline_data = getattr(part, "inline_data", None)
                 if inline_data is not None:
                     image_parts.append(part)
@@ -77,33 +82,35 @@ class _BaseLLMClient:
                     continue
 
                 if text_value:
-                    answer_parts.append(text_value)
+                    answer_parts_info.append({"text": text_value, "part_index": idx})
 
-            # 如果包含图片，使用图片提取逻辑
+            fmt_type = None
+            if format_config and isinstance(format_config, dict):
+                fmt_type = format_config.get("type")
+            if inline_citations and fmt_type not in ("json", "json_schema"):
+                self._apply_grounding_citations_to_parts(answer_parts_info, candidate)
+
+            answer_parts = [item["text"] for item in answer_parts_info]
+
             if image_parts:
-                return self._extract_image_result(image_parts, answer_parts, thoughts, format_config)
+                result = self._extract_image_result(image_parts, answer_parts, thoughts, format_config)
+                return self._append_url_metadata(result, candidate) if inline_citations else result
 
-            # 如果有思考内容，格式化输出
             if thoughts:
                 thought_text = "\n\n".join(thoughts)
                 answer_text = "".join(answer_parts)
-
-                # 根据 format 配置处理答案部分
                 processed_answer = GeminiFormatHandler.process_response(answer_text, format_config)
-
-                # 如果答案是字符串类型，添加思考块
                 if isinstance(processed_answer, str):
-                    return f"<GEMINI_THINKING>\n{thought_text}\n</GEMINI_THINKING>\n\n{processed_answer}"
-                else:
-                    # 如果是 JSON 等非字符串类型，只返回答案（思考内容记录在日志中）
-                    logger.info("检测到思考内容（%d 字符），但答案为非文本格式，仅返回答案", len(thought_text))
+                    processed_answer = f"<GEMINI_THINKING>\n{thought_text}\n</GEMINI_THINKING>\n\n{processed_answer}"
+                    if inline_citations:
+                        return self._append_url_metadata(processed_answer, candidate)
                     return processed_answer
+                logger.info("检测到思考内容（%d 字符），但答案为非文本格式，仅返回答案", len(thought_text))
+                return self._append_url_metadata(processed_answer, candidate) if inline_citations else processed_answer
 
-            # 没有思考内容，使用标准提取
             raw_text = "".join(answer_parts) if answer_parts else resp.text
             processed = GeminiFormatHandler.process_response(raw_text, format_config)
-
-            return processed
+            return self._append_url_metadata(processed, candidate) if inline_citations else processed
         except Exception as e:
             logger.error("提取响应结果失败: %s", e)
             raise LLMTransportError(f"提取响应结果失败: {e}") from e
@@ -186,6 +193,123 @@ class _BaseLLMClient:
         else:
             # 回退到文本（不应该发生，但为了安全）
             return "\n".join(texts)
+
+    def _append_url_metadata(self, result: Any, candidate: Any) -> Any:
+        """将 url_metadata 附加到输出文本后。"""
+        urls = []
+        metadata_list = getattr(candidate, "url_context_metadata", None)
+        if metadata_list:
+            for meta in metadata_list:
+                url_meta_list = getattr(meta, "url_metadata", None)
+                if not url_meta_list:
+                    continue
+                for url_meta in url_meta_list:
+                    retrieved = getattr(url_meta, "retrieved_url", None)
+                    if retrieved:
+                        urls.append(str(retrieved))
+
+        if not urls:
+            return result
+
+        if isinstance(result, dict):
+            result = dict(result)
+            result["url_metadata"] = urls
+            return result
+
+        # 对于字符串或其他简单类型，保持原值，引用信息通过 grounding 插入呈现
+        return result
+
+    def _apply_grounding_citations_to_parts(self, parts_info: List[Dict[str, Any]], candidate: Any) -> None:
+        """在文本片段中插入内嵌引用。"""
+        if not parts_info:
+            return
+
+        metadata = getattr(candidate, "grounding_metadata", None)
+        if metadata is None:
+            return
+
+        supports = getattr(metadata, "grounding_supports", None)
+        chunks = getattr(metadata, "grounding_chunks", None)
+        if not supports or not chunks:
+            return
+
+        supports_by_part: Dict[int, List[Any]] = {}
+        for support in supports:
+            segment = getattr(support, "segment", None)
+            if segment is None:
+                continue
+            part_index = getattr(segment, "part_index", None)
+            if part_index is None:
+                part_index = 0
+            end_index = getattr(segment, "end_index", None)
+            if end_index is None:
+                continue
+            supports_by_part.setdefault(part_index, []).append(support)
+
+        if not supports_by_part:
+            return
+
+        parts_map = {info["part_index"]: info for info in parts_info if isinstance(info.get("text"), str)}
+        if not parts_map:
+            return
+
+        for part_index, part_supports in supports_by_part.items():
+            part_entry = parts_map.get(part_index)
+            if not part_entry:
+                continue
+
+            original_text = part_entry["text"]
+            if not isinstance(original_text, str) or not original_text:
+                continue
+
+            sorted_supports = sorted(
+                part_supports,
+                key=lambda s: getattr(getattr(s, "segment", None), "end_index", 0) or 0,
+                reverse=True,
+            )
+
+            text = original_text
+            for support in sorted_supports:
+                segment = getattr(support, "segment", None)
+                if segment is None:
+                    continue
+                end_index = getattr(segment, "end_index", None)
+                if end_index is None:
+                    continue
+                if end_index > len(text):
+                    end_index = len(text)
+                chunk_indices = getattr(support, "grounding_chunk_indices", None) or []
+                citation_links = []
+                for idx in chunk_indices:
+                    if 0 <= idx < len(chunks):
+                        uri = self._extract_chunk_uri(chunks[idx])
+                        if uri:
+                            citation_links.append(f"[{idx + 1}]({uri})")
+                if not citation_links:
+                    continue
+                citation_string = " ".join(citation_links)
+                if not citation_string:
+                    continue
+
+                insertion = citation_string
+                if end_index > 0 and not text[end_index - 1].isspace():
+                    insertion = " " + insertion
+                text = text[:end_index] + insertion + text[end_index:]
+
+            part_entry["text"] = text
+
+    @staticmethod
+    def _extract_chunk_uri(chunk: Any) -> Optional[str]:
+        """从 grounding chunk 中提取引用链接。"""
+        if chunk is None:
+            return None
+        web = getattr(chunk, "web", None)
+        if web and getattr(web, "uri", None):
+            return web.uri
+        retrieved = getattr(chunk, "retrieved_context", None)
+        if retrieved and getattr(retrieved, "uri", None):
+            return retrieved.uri
+        return None
 
     def _save_generated_image(self, image_data: bytes, timestamp: str) -> str:
         """保存生成的图片到本地目录。
@@ -326,9 +450,13 @@ class LLMClient(_BaseLLMClient):
 
         # 2. 转换为 Gemini 格式（传入 file_uploader 以支持多模态）
         gemini_payload = GeminiAdapter.to_chat(ics, self._file_uploader)
+        inline_citations = bool(gemini_payload.pop("inline_citations", False))
 
         if dry_run:
-            return {"ics_request": ics.to_payload(), "gemini_payload": gemini_payload}
+            payload_preview = dict(gemini_payload)
+            if inline_citations:
+                payload_preview["inline_citations"] = True
+            return {"ics_request": ics.to_payload(), "gemini_payload": payload_preview}
 
         # 3. 调用 Gemini SDK
         resp = self._send(gemini_payload, ics.meta.get("trace_id"))
@@ -339,13 +467,13 @@ class LLMClient(_BaseLLMClient):
             return resp
 
         # 5. 提取并处理结果
-        result = self._extract_result(resp, ics.format_config)
+        result = self._extract_result(resp, ics.format_config, inline_citations=inline_citations)
         if not include_debug:
             return result
         return {
             "result": result,
             "ics_request": ics.to_payload(),
-            "gemini_payload": gemini_payload,
+            "gemini_payload": {**gemini_payload, **({"inline_citations": True} if inline_citations else {})},
         }
 
     def _send(self, payload: Dict[str, Any], trace_id: Optional[str]):
@@ -365,6 +493,7 @@ class LLMClient(_BaseLLMClient):
 
                 # 构建 GenerateContentConfig
                 config_kwargs = {}
+                tools = payload.get("tools")
 
                 # 处理 thinking_config
                 if "thinking_config" in generation_config:
@@ -398,6 +527,9 @@ class LLMClient(_BaseLLMClient):
                         aspect_ratio=img_cfg["aspect_ratio"]
                     )
 
+                if tools:
+                    config_kwargs["tools"] = tools
+
                 # 构建完整的消息列表（system_instruction + history + current）
                 contents = list(history)
 
@@ -414,7 +546,7 @@ class LLMClient(_BaseLLMClient):
                 response = self._genai_client.models.generate_content(
                     model=model_name,
                     contents=contents,
-                    config=gen_config
+                    config=gen_config,
                 )
 
                 return response
