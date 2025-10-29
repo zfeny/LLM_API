@@ -1,0 +1,6 @@
+# 基础角色扮演预设组 - Roleplay Basic Preset Group
+# 用途：角色扮演的基础配置
+# 包含：情感控制、性格锚定
+
+- preset: roleplay/emotion_control      # 情感控制（防止过度情绪化）
+- preset: roleplay/personality_anchor   # 性格锚定（保持角色一致性）

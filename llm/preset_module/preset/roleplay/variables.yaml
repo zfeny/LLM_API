@@ -1,0 +1,450 @@
+# 变量系统 - Variable System
+# 用途：动态配置管理，模块化功能控制
+# 推荐度：⭐⭐⭐⭐
+# 注意：本模块使用SillyTavern特有的变量语法
+
+# === 变量系统说明 ===
+
+- system: |
+    <variable_system>
+    变量系统基于SillyTavern的宏命令：
+
+    核心语法：
+    - {{setvar::变量名::变量值}} - 设置变量
+    - {{getvar::变量名}} - 获取变量
+    - 变量名可以是任意字符串
+    - 变量值可以是文本、数字、甚至多行内容
+
+    主要用途：
+    1. 功能开关（开启/关闭某功能）
+    2. 配置存储（保存设置）
+    3. 状态管理（记录状态）
+    4. 模块化组织（分离关注点）
+
+    优点：
+    - Token开销极小
+    - 灵活性极高
+    - 易于维护
+    - 支持热插拔
+    </variable_system>
+
+# === 变量初始化 ===
+
+- system: |
+    <variable_initialization>
+    在预设开头初始化所有变量（设为空）：
+
+    # 功能开关类
+    {{setvar::enable_cot::}}
+    {{setvar::enable_tucao::}}
+    {{setvar::enable_summary::}}
+    {{setvar::enable_anti_cliche::}}
+
+    # 配置类
+    {{setvar::style::}}
+    {{setvar::word_count::}}
+    {{setvar::pacing::}}
+
+    # 状态类
+    {{setvar::current_scene::}}
+    {{setvar::character_status::}}
+    {{setvar::relationship::}}
+
+    原则：
+    - 所有变量先初始化为空
+    - 需要时再赋值
+    - 空变量不影响输出
+    - 便于管理和查找
+    </variable_initialization>
+
+# === 功能开关模式 ===
+
+- system: |
+    <feature_toggle>
+    使用变量实现功能的开启/关闭：
+
+    示例1：思维链开关
+    # 关闭状态（初始）
+    {{setvar::cot_start::}}
+    {{setvar::cot_end::}}
+
+    # 开启状态（用户要求时）
+    {{setvar::cot_start::<thinking>}}
+    {{setvar::cot_end::</thinking>}}
+
+    # 使用
+    {{getvar::cot_start}}
+    ${如果变量非空，这里会显示<thinking>}
+    思考内容...
+    {{getvar::cot_end}}
+    ${如果变量非空，这里会显示</thinking>}
+
+    示例2：摘要开关
+    {{setvar::summary_open::<summary>}}
+    {{setvar::summary_close::</summary>}}
+
+    # 关闭摘要时
+    {{setvar::summary_open::}}
+    {{setvar::summary_close::}}
+
+    优点：
+    - 用户可以动态控制
+    - 不需要修改预设文件
+    - 一个命令切换状态
+    </feature_toggle>
+
+# === 配置存储模式 ===
+
+- system: |
+    <configuration_storage>
+    使用变量存储复杂配置：
+
+    示例1：文风配置
+    {{setvar::style::
+      文风名称：极简主义
+      特点：
+        - 白描手法
+        - 短句为主
+        - 零度叙述
+      禁止：
+        - 形容词堆砌
+        - 情绪渲染
+        - 氛围营造
+    }}
+
+    # 在prompt中使用
+    <writing_style>
+    {{getvar::style}}
+    </writing_style>
+
+    示例2：角色状态
+    {{setvar::character_a::
+      姓名：小明
+      状态：疲惫
+      位置：咖啡厅
+      情绪：困惑
+      装备：背包、手机
+    }}
+
+    # 在创作时引用
+    当前角色状态：
+    {{getvar::character_a}}
+
+    优点：
+    - 集中管理配置
+    - 便于修改
+    - 可复用
+    </configuration_storage>
+
+# === 状态管理模式 ===
+
+- system: |
+    <state_management>
+    使用变量追踪对话状态：
+
+    示例1：场景追踪
+    {{setvar::scene::教室}}
+    {{setvar::time::下午3点}}
+    {{setvar::weather::晴天}}
+
+    场景会随对话更新：
+    {{setvar::scene::走廊}}  # 场景切换
+    {{setvar::time::下午4点}}  # 时间推进
+
+    示例2：关系追踪
+    {{setvar::relationship::陌生人}}
+    # 随剧情发展
+    {{setvar::relationship::朋友}}
+    # 继续发展
+    {{setvar::relationship::恋人}}
+
+    示例3：任务追踪
+    {{setvar::task_list::
+      1. [ ] 找到钥匙
+      2. [ ] 打开门
+      3. [ ] 进入房间
+    }}
+
+    # 完成任务后更新
+    {{setvar::task_list::
+      1. [x] 找到钥匙
+      2. [ ] 打开门
+      3. [ ] 进入房间
+    }}
+    </state_management>
+
+# === 模块化组织模式 ===
+
+- system: |
+    <modular_organization>
+    使用变量实现模块化：
+
+    模块1：反八股
+    {{setvar::anti_cliche::
+      禁用词：["一丝", "些许", "微妙"]
+      检查频率：每段
+      处理方式：删除或替换
+    }}
+
+    模块2：情感控制
+    {{setvar::emotion_control::
+      禁止机械化：是
+      禁止绝望化：是
+      禁止昏迷：是
+      克制程度：高
+    }}
+
+    模块3：对话格式
+    {{setvar::dialogue_format::
+      引号：双引号
+      标签：省略
+      动作：融入对话
+    }}
+
+    # 在prompt中整合
+    <rules>
+    反八股规则：{{getvar::anti_cliche}}
+    情感控制：{{getvar::emotion_control}}
+    对话格式：{{getvar::dialogue_format}}
+    </rules>
+
+    优点：
+    - 各模块独立
+    - 易于增删
+    - 配置清晰
+    </modular_organization>
+
+# === 常用变量命名规范 ===
+
+- system: |
+    <naming_convention>
+    推荐的变量命名规范：
+
+    【功能开关类】
+    - enable_[功能名]
+    - [功能名]_on / [功能名]_off
+    示例：enable_cot, tucao_on
+
+    【标签对类】
+    - [功能名]_start / [功能名]_end
+    - [功能名]_open / [功能名]_close
+    示例：summary_start, thinking_close
+
+    【配置类】
+    - [领域]_config
+    - [功能]_setting
+    示例：style_config, dialogue_setting
+
+    【状态类】
+    - current_[状态名]
+    - [对象]_status
+    示例：current_scene, character_status
+
+    【内容类】
+    - [内容类型]_content
+    - [功能]_data
+    示例：summary_content, history_data
+
+    原则：
+    - 使用英文或拼音
+    - 用下划线分隔单词
+    - 名称要有意义
+    - 保持一致性
+    </naming_convention>
+
+# === 实用变量示例集 ===
+
+- system: |
+    <useful_variables_examples>
+    以下是经过验证的实用变量配置：
+
+    1. 文风切换系统
+    {{setvar::style_minimalist::白描+短句+零度叙述}}
+    {{setvar::style_romantic::细腻+感性+意境}}
+    {{setvar::style_action::快节奏+短句+动词密集}}
+
+    使用：{{getvar::style_minimalist}}
+
+    2. 字数控制系统
+    {{setvar::length_short::300字以内}}
+    {{setvar::length_medium::500-800字}}
+    {{setvar::length_long::1000字以上}}
+
+    3. 节奏控制系统
+    {{setvar::pace_fast::短句+动作密集+少描写}}
+    {{setvar::pace_normal::长短句混合+自然节奏}}
+    {{setvar::pace_slow::长句+细节丰富+氛围营造}}
+
+    4. 禁用词管理
+    {{setvar::forbidden_words::一丝,些许,不禁,忍不住,战栗}}
+
+    5. 场景模板
+    {{setvar::scene_template::
+      地点：${填写}
+      时间：${填写}
+      在场角色：${填写}
+      环境：${填写}
+    }}
+
+    6. CoT模板
+    {{setvar::cot_template::
+      1. 场景：${简要描述}
+      2. 任务：${本次目标}
+      3. 风格：${文风选择}
+      4. 注意：${关键约束}
+    }}
+    </useful_variables_examples>
+
+# === 变量与其他机制结合 ===
+
+- system: |
+    <variables_integration>
+    变量系统与其他机制的配合：
+
+    1. 变量 + 吐槽
+    <tucao>
+    当前文风：{{getvar::current_style}}
+    字数要求：{{getvar::word_limit}}
+    OK，按这个来！
+    </tucao>
+
+    2. 变量 + 摘要
+    {{getvar::summary_start}}
+    场景：{{getvar::current_scene}}
+    角色状态：{{getvar::character_status}}
+    ${摘要内容}
+    {{getvar::summary_end}}
+
+    3. 变量 + 反八股
+    禁用词列表：{{getvar::forbidden_words}}
+    ${在创作时自动检查这些词}
+
+    4. 变量 + CoT
+    {{getvar::cot_start}}
+    使用CoT模板：{{getvar::cot_template}}
+    ${填充模板}
+    {{getvar::cot_end}}
+
+    组合使用可以实现高度灵活的配置系统。
+    </variables_integration>
+
+# === 动态更新变量 ===
+
+- system: |
+    <dynamic_update>
+    在对话过程中动态更新变量：
+
+    用户命令示例：
+    用户："切换到极简风格"
+    助手：{{setvar::current_style::极简主义}}
+         "好的，已切换到极简风格。"
+
+    用户："开启思维链"
+    助手：{{setvar::cot_start::<thinking>}}
+         {{setvar::cot_end::</thinking>}}
+         "思维链已开启。"
+
+    用户："关闭摘要"
+    助手：{{setvar::summary_start::}}
+         {{setvar::summary_end::}}
+         "摘要已关闭。"
+
+    原理：
+    - 助手识别用户命令
+    - 动态修改变量值
+    - 立即生效
+    - 无需重启对话
+    </dynamic_update>
+
+# === 变量调试 ===
+
+- system: |
+    <variable_debugging>
+    如何检查变量是否正确设置：
+
+    方法1：显示变量值
+    用户："显示当前配置"
+    助手：
+    "当前配置：
+    - 文风：{{getvar::current_style}}
+    - 字数：{{getvar::word_limit}}
+    - CoT：{{getvar::enable_cot}}
+    "
+
+    方法2：变量列表
+    创建一个调试变量：
+    {{setvar::debug_info::
+      style={{getvar::current_style}}
+      cot={{getvar::enable_cot}}
+      summary={{getvar::enable_summary}}
+    }}
+
+    用户："debug"
+    助手：{{getvar::debug_info}}
+
+    方法3：日志记录
+    {{setvar::log::}}
+    # 每次操作后追加
+    {{setvar::log::{{getvar::log}}\n已开启CoT}}
+
+    调试时显示：{{getvar::log}}
+    </variable_debugging>
+
+# === 最佳实践 ===
+
+- system: |
+    <best_practices>
+    变量系统使用的最佳实践：
+
+    1. 初始化所有变量
+       - 在预设开头声明所有变量
+       - 即使初值为空也要声明
+       - 便于查找和管理
+
+    2. 使用有意义的名称
+       - 不要用a, b, c
+       - 用descriptive_name
+       - 保持命名一致性
+
+    3. 分类组织变量
+       - 功能开关一组
+       - 配置参数一组
+       - 状态数据一组
+       - 用注释分隔
+
+    4. 避免变量爆炸
+       - 不要为了变量而变量
+       - 只对真正需要动态调整的内容使用变量
+       - 静态内容直接写在预设里
+
+    5. 文档化变量用途
+       - 在初始化时添加注释
+       - 说明变量的作用
+       - 说明可能的取值
+
+    6. 定期清理无用变量
+       - 删除不再使用的变量
+       - 保持预设整洁
+    </best_practices>
+
+# === 使用建议 ===
+
+- system: |
+    <usage_tips>
+    1. 变量系统非常轻量，几乎不消耗token
+    2. 适合需要灵活配置的场景
+    3. 可以让用户自己控制功能开关
+    4. 与其他机制配合使用效果最佳
+    5. 不要过度使用，保持简洁
+    </usage_tips>
+
+# === 注意事项 ===
+
+- system: |
+    <caution>
+    1. 变量语法是SillyTavern特有的
+    2. 其他平台可能不支持
+    3. 变量值是字符串，不是代码
+    4. 变量作用域是整个对话session
+    5. 刷新对话会重置所有变量
+    </caution>

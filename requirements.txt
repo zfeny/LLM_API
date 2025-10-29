@@ -1,7 +1,7 @@
 # 核心依赖
 PyYAML>=6.0
-openai>=1.0.0  # 用于 llm_oai_api（OpenAI 兼容渠道）
-google-genai>=0.5.0  # 用于 llm_gemini_api（Gemini 新版 SDK）
+openai>=1.0.0  # 用于 openai（OpenAI 兼容渠道）
+google-genai>=0.5.0  # 用于 gemini（Gemini 新版 SDK）
 requests>=2.28.0
 
 # 可选依赖（推荐安装以获得更好的体验）

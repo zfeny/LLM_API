@@ -1,6 +1,6 @@
 # Gemini API 封装模块使用指南
 
-`llm_gemini_api` 是一个完整的 Google Gemini API 封装模块，提供了与 OpenAI API 风格一致的 YAML 配置接口，支持文本生成、多模态图片理解、思考模式、格式化输出等功能。
+`gemini` 是一个完整的 Google Gemini API 封装模块，提供了与 OpenAI API 风格一致的 YAML 配置接口，支持文本生成、多模态图片理解、思考模式、格式化输出等功能。
 
 ## 目录
 
@@ -25,13 +25,15 @@
 ### 安装依赖
 
 ```bash
-pip install google-generativeai google-genai pyyaml
+pip install google-genai pyyaml
 ```
+
+> ℹ️ 说明：本项目已全面切换至 **google-genai** 新版 SDK。旧的 `google-generativeai` 依赖已移除，如仍在使用旧版本请先卸载后重新安装上面的依赖组合。
 
 ### 基本使用
 
 ```python
-from llm_gemini_api import LLMClient, load_env_file
+from gemini import LLMClient, load_env_file
 
 # 加载环境变量
 load_env_file()
@@ -112,35 +114,121 @@ generation:
 
 ### 预设功能
 
-`llm_gemini_api` 支持使用预设（Preset）来快速插入预定义的提示词，提高配置复用性和一致性。
+`gemini` 支持使用预设（Preset）来快速插入预定义的提示词，提高配置复用性和一致性。
 
 #### 什么是预设？
 
-预设是预先定义好的消息模板，存储在 `llm_gemini_api/preset/` 文件夹中的 YAML 文件中。使用预设可以：
+预设是预先定义好的消息模板，存储在 `llm/preset_module/preset/` 文件夹中的 YAML 文件中。使用预设可以：
 - 快速应用通用的系统提示词
 - 保持多个请求间的风格一致
 - 简化 YAML 配置
+- 通过预设组批量导入多个预设
 
-#### 内置预设
+#### 预设目录结构
 
-模块提供了以下内置预设：
+预设文件按功能分类存储在子目录中：
 
+```
+llm/preset_module/preset/
+├── normal/          # 通用预设
+│   └── jailbreak_ultimate.yaml
+├── roleplay/        # 角色扮演预设
+│   ├── emotion_control.yaml
+│   ├── personality_anchor.yaml
+│   ├── summary.yaml
+│   ├── variables.yaml
+│   └── worldbook.yaml
+├── writing/         # 写作预设
+│   ├── anti_cliche.yaml
+│   ├── attention.yaml
+│   ├── cot.yaml
+│   ├── dialogue_format.yaml
+│   ├── style_templates.yaml
+│   ├── tucao.yaml
+│   └── writing_style.yaml
+└── groups/          # 预设组
+    ├── writing_basic.yaml
+    ├── writing_full.yaml
+    ├── roleplay_basic.yaml
+    ├── roleplay_full.yaml
+    ├── jailbreak_writing.yaml
+    ├── jailbreak_roleplay.yaml
+    └── ultimate.yaml
+```
+
+#### 内置预设模块
+
+模块提供了以下功能预设：
+
+**通用预设（normal/）**：
 | 预设名称 | 说明 | 适用场景 |
 |---------|------|---------|
-| `default` | 通用专业助手 | 一般对话、问答 |
-| `creative` | 创意助手 | 创作、头脑风暴 |
-| `precise` | 严谨助手 | 技术文档、学术内容 |
-| `concise` | 简洁助手 | 快速回答、摘要 |
-| `polite` | 礼貌助手 | 客服、正式沟通 |
+| `jailbreak_ultimate` | 破限预设 | 解除内容限制，启用创意模式 |
+
+**写作预设（writing/）**：
+| 预设名称 | 说明 | 消息数 |
+|---------|------|--------|
+| `cot` | 思维链机制 | 5条 |
+| `anti_cliche` | 反八股机制 | 7条 |
+| `writing_style` | 文风控制（零度叙述） | 9条 |
+| `tucao` | 吐槽机制（注意力分配） | 11条 |
+| `dialogue_format` | 对话格式规范 | 10条 |
+| `style_templates` | 文风模板库 | 8条 |
+| `attention` | 注意力分配机制 | 9条 |
+
+**角色扮演预设（roleplay/）**：
+| 预设名称 | 说明 | 消息数 |
+|---------|------|--------|
+| `emotion_control` | 情感控制系统 | 9条 |
+| `personality_anchor` | 性格锚定机制 | 11条 |
+| `worldbook` | 世界书管理 | 13条 |
+| `summary` | 摘要机制 | 11条 |
+| `variables` | 变量系统 | 13条 |
+
+**预设组（groups/）**：
+| 预设组名称 | 说明 | 消息数 |
+|-----------|------|--------|
+| `writing_basic` | 基础写作（cot + anti_cliche + writing_style） | 21条 |
+| `writing_full` | 完整写作（writing_basic + tucao + dialogue_format） | 42条 |
+| `roleplay_basic` | 基础角色扮演（emotion_control + personality_anchor） | 20条 |
+| `roleplay_full` | 完整角色扮演（roleplay_basic + worldbook + summary + variables） | 57条 |
+| `jailbreak_writing` | 无限制写作（jailbreak + writing_full） | 51条 |
+| `jailbreak_roleplay` | 无限制角色扮演（jailbreak + roleplay_full） | 66条 |
+| `ultimate` | 终极组合（所有主要功能） | 71条 |
 
 #### 使用预设
 
-**基本用法**：
+**基本用法 - 自动搜索**：
+
+预设加载器支持自动在所有子目录中搜索预设文件：
 
 ```yaml
 messages:
-  - preset: default
-  - user: 介绍一下Python的特点。
+  - preset: jailbreak_ultimate  # 自动找到 normal/jailbreak_ultimate.yaml
+  - user: 写一个创意故事。
+generation:
+  model: gemini-2.5-flash
+```
+
+**指定子目录路径**：
+
+```yaml
+messages:
+  - preset: writing/cot          # 明确指定 writing 目录下的 cot 预设
+  - preset: roleplay/emotion_control
+  - user: 描述主角此刻的心情。
+generation:
+  model: gemini-2.5-flash
+```
+
+**使用预设组**：
+
+预设组可以批量导入多个相关预设：
+
+```yaml
+messages:
+  - preset: groups/writing_basic  # 包含 cot + anti_cliche + writing_style
+  - user: 写一段描写性文字。
 generation:
   model: gemini-2.5-flash
 ```
@@ -149,20 +237,21 @@ generation:
 
 ```yaml
 messages:
-  - preset: creative
+  - preset: groups/writing_full
   - system: 你还要特别注重文学性和诗意。
   - user: 写一首关于秋天的诗。
 generation:
   model: gemini-2.5-flash
 ```
 
-**多个预设组合**：
+**组合预设组和单个预设**：
 
 ```yaml
 messages:
-  - preset: polite
-  - preset: concise
-  - user: 解释什么是机器学习。
+  - preset: normal/jailbreak_ultimate
+  - preset: groups/roleplay_basic
+  - preset: writing/dialogue_format
+  - user: 创作一段角色对话。
 generation:
   model: gemini-2.5-flash
 ```
@@ -245,11 +334,14 @@ messages:
 
 您可以创建自己的预设文件：
 
-1. 在 `llm_gemini_api/preset/` 目录下创建 YAML 文件（如 `my_preset.yaml`）
-2. 定义消息列表（可包含 system、user、assistant）：
+> 文件结构：所有预设资源统一收纳在 `llm/preset_module/` 目录下，其中 `preset/` 存放单个预设，`groups/` 存放预设组，`json` 与 `json2yaml` 用于 SillyTavern 导入导出，`archive/` 可留作归档用途。
+
+**1. 创建单个预设**
+
+在 `llm/preset_module/preset/` 的任意子目录下创建 YAML 文件：
 
 ```yaml
-# my_preset.yaml - 只包含 system
+# llm/preset_module/preset/writing/my_style.yaml
 - system: 你是一个专业的代码审查员。
 - system: 请关注代码质量、性能和最佳实践。
 ```
@@ -257,45 +349,86 @@ messages:
 或者包含对话示例：
 
 ```yaml
-# my_preset_with_examples.yaml - 包含 system + 对话示例
+# llm/preset_module/preset/roleplay/my_character.yaml
 - system: 你是一个友好的AI助手。
 - user: 你好，请介绍一下你自己。
 - assistant: 你好！我是一个友好的AI助手，我会用示例来说明问题。
 ```
 
-3. 在 YAML 提示中使用：
+使用方式：
 
 ```yaml
 messages:
-  - preset: my_preset
+  - preset: writing/my_style    # 指定路径
+  # 或
+  - preset: my_style            # 自动搜索
   - user: 请审查这段代码...
 generation:
   model: gemini-2.5-flash
 ```
 
+**2. 创建预设组**
+
+预设组是包含多个预设引用的 YAML 文件，用于批量导入：
+
+```yaml
+# llm/preset_module/groups/my_workflow.yaml
+- preset: normal/jailbreak_ultimate      # 引用单个预设
+- preset: writing/cot
+- preset-group: groups/roleplay_basic    # 引用其他预设组（支持嵌套）
+- preset: writing/dialogue_format
+```
+
+使用方式：
+
+```yaml
+messages:
+  - preset: groups/my_workflow  # 自动展开所有引用的预设
+  - user: 你的问题...
+generation:
+  model: gemini-2.5-flash
+```
+
+**预设组特性**：
+- ✅ 支持 `preset: xxx` 引用单个预设
+- ✅ 支持 `preset-group: xxx` 引用其他预设组（嵌套）
+- ✅ 自动循环依赖检测（防止无限递归）
+- ✅ 按定义顺序展开预设
+
 **注意**：
 - preset 中的 **system 消息**会被提取到 `system_instruction` JSON 中
 - preset 中的 **user/assistant 消息**会按顺序插入到 history 中
+- 预设组文件只能包含 `preset:` 或 `preset-group:` 引用，不能直接包含消息
 
 #### 预设加载规则
 
 - **热更新**：每次请求时重新读取预设文件，支持动态修改
 - **错误处理**：如果引用的预设不存在，会抛出 `LLMValidationError` 异常
 - **顺序保持**：预设在 YAML 中的位置决定其展开位置
+- **自动搜索**：不指定路径时，会在所有子目录中搜索匹配的预设文件
+- **循环检测**：预设组嵌套引用时，自动检测并阻止循环依赖
+- **递归展开**：预设组中的所有引用会按顺序递归展开为消息列表
 
 #### 程序化使用预设
 
 您也可以在 Python 代码中直接加载预设：
 
 ```python
-from llm_gemini_api import load_preset
+from gemini import load_preset
 
-# 加载预设
-preset_messages = load_preset("default")
+# 加载单个预设（支持子目录）
+preset_messages = load_preset("writing/cot")
+
+# 或使用自动搜索
+preset_messages = load_preset("cot")
+
+# 加载预设组（自动展开）
+group_messages = load_preset("groups/writing_full")
 
 # 查看预设内容
 for msg in preset_messages:
-    print(f"{msg.role}: {msg.content}")
+    print(f"{msg.role}: {msg.content[:50]}...")
+    print(f"  来源: {msg.source}")
 ```
 
 ### 流式输出
@@ -354,7 +487,7 @@ generation:
 
 ### 格式化输出
 
-`llm_gemini_api` 支持三种格式化模式：
+`gemini` 支持三种格式化模式：
 
 #### 1. Markdown 格式（提示词工程）
 
@@ -476,7 +609,7 @@ generation:
 
 ## 使用量追踪
 
-`llm_gemini_api` 自动记录每次 API 调用的使用量。
+`gemini` 自动记录每次 API 调用的使用量。
 
 ### 数据库配置
 
@@ -489,7 +622,7 @@ GEMINI_USAGE_DB=gemini_usage_log.db
 ### 查看使用量
 
 ```python
-from llm_gemini_api import UsageRecorder
+from gemini import UsageRecorder
 
 recorder = UsageRecorder()
 
@@ -529,7 +662,7 @@ for record in records:
 #### 初始化
 
 ```python
-from llm_gemini_api import LLMClient, GeminiAPIConfig, UsageRecorder, RetryConfig
+from gemini import LLMClient, GeminiAPIConfig, UsageRecorder, RetryConfig
 
 # 方式 1: 从环境变量创建
 client = LLMClient.from_env()
@@ -537,11 +670,10 @@ client = LLMClient.from_env()
 # 方式 2: 手动配置
 config = GeminiAPIConfig(
     api_key="your_api_key",
-    default_model="gemini-2.5-flash",
-    request_timeout=120
+    default_model="gemini-2.5-flash"
 )
-recorder = UsageRecorder(db_path="custom_usage.db")
-retry_config = RetryConfig(max_retries=4, backoff_factor=2.0)
+recorder = UsageRecorder(db_path="custom_usage.db", supports_thoughts=True)
+retry_config = RetryConfig(max_retries=4, exponential_base=2.0)
 
 client = LLMClient(config, recorder, retry_config)
 ```
@@ -596,7 +728,7 @@ print(raw.candidates[0].content.parts[0].text)
 ### 异常类
 
 ```python
-from llm_gemini_api import LLMConfigError, LLMValidationError, LLMTransportError
+from gemini import LLMConfigError, LLMValidationError, LLMTransportError
 
 try:
     response = client.invoke_from_yaml(yaml_prompt)
@@ -634,7 +766,7 @@ config = GeminiAPIConfig(api_key="AIzaSy...")
 
 ```python
 # 推荐
-from llm_gemini_api import load_env_file
+from gemini import load_env_file
 load_env_file()
 client = LLMClient.from_env()
 ```
@@ -684,7 +816,7 @@ generation:
 ### 5. 错误处理
 
 ```python
-from llm_gemini_api import LLMClient, LLMTransportError
+from gemini import LLMClient, LLMTransportError
 import time
 
 client = LLMClient.from_env()
@@ -708,7 +840,7 @@ for attempt in range(max_attempts):
 ### 6. 使用量监控
 
 ```python
-from llm_gemini_api import UsageRecorder
+from gemini import UsageRecorder
 import datetime
 
 recorder = UsageRecorder()
@@ -733,7 +865,7 @@ print(f"今日已使用 {total_tokens} tokens")
 ### 示例 1：代码生成助手
 
 ```python
-from llm_gemini_api import LLMClient, load_env_file
+from gemini import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()
@@ -760,7 +892,7 @@ print(response)
 ### 示例 2：图片分析工作流
 
 ```python
-from llm_gemini_api import LLMClient, load_env_file
+from gemini import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()
@@ -818,7 +950,7 @@ print("产品描述:", description)
 ### 示例 3：思考模式推理
 
 ```python
-from llm_gemini_api import LLMClient, load_env_file
+from gemini import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()
@@ -882,7 +1014,7 @@ A: 检查以下几点：
 A: 传入 `None` 给 recorder 参数：
 
 ```python
-from llm_gemini_api import LLMClient, GeminiAPIConfig
+from gemini import LLMClient, GeminiAPIConfig
 
 config = GeminiAPIConfig.from_env()
 client = LLMClient(config, recorder=None)  # 禁用记录
@@ -899,34 +1031,68 @@ A: 当前版本暂不支持，仅提供同步客户端 `LLMClient`。`AsyncLLMCl
 ### 模块结构
 
 ```
-llm_gemini_api/
-├── __init__.py          # 公共 API 导出
-├── config.py            # 配置管理（GeminiAPIConfig）
-├── parser.py            # YAML 解析器
-├── builder.py           # ICS 消息构建器
-├── adapter.py           # Gemini SDK 适配器
-├── format.py            # 格式化处理器
-├── file_utils.py        # Files API 工具
-├── client.py            # 客户端实现
-├── recorder.py          # 使用量记录器
-└── exceptions.py        # 自定义异常
+llm/
+├── __init__.py             # 公共基类导出
+├── config.py               # RetryConfig / load_env_file
+├── models.py               # ICS 数据模型
+├── parser.py               # YAML 解析器（可注册预设加载器）
+├── recorder.py             # 使用量记录器
+├── utils.py                # 重试与工具函数
+└── preset_module/          # 预设资源仓库
+    ├── json/               # SillyTavern 原始 JSON
+    ├── json2yaml/          # JSON 转 YAML 输出
+    ├── archive/            # 历史归档（可选）
+    ├── groups/             # 预设组
+    └── preset/             # 单个预设（normal/roleplay/writing）
+
+gemini/
+├── __init__.py             # Gemini 对外入口
+├── config.py               # GeminiAPIConfig
+├── builder.py              # ICS 构建器
+├── adapter.py              # Gemini SDK 适配器
+├── client.py               # 客户端实现（google-genai）
+├── file_utils.py           # Files API 工具
+├── format.py               # 格式化处理
+├── preset_loader.py        # 预设加载器
+└── tavern_converter.py     # SillyTavern 转换工具
+
+openai/
+├── __init__.py             # OpenAI 兼容入口
+├── config.py               # LLMAPIConfig
+├── builder.py / adapter.py / client.py ...
 ```
 
-### 双 SDK 架构
+### SDK 说明
 
-模块使用双 SDK 架构以支持不同功能：
-
-- **google.generativeai**（旧 SDK）：用于普通文本生成
-- **google.genai**（新 SDK）：用于 Thinking Mode 和多模态功能
-
-系统会自动选择合适的 SDK：
-- 检测到 `thinking_config`：使用新 SDK
-- 检测到多模态内容：使用新 SDK
-- 其他情况：使用旧 SDK
+当前版本 **仅使用 `google-genai` 新版 SDK** 来完成所有 Gemini 调用，旧版 `google.generativeai` 已移除。
 
 ---
 
 ## 更新日志
+
+### v1.2.0 (2025-11-XX)
+
+**结构调整**：
+- ✅ 预设资源集中迁移至 `llm/preset_module/` 并划分 `json/`、`json2yaml/`、`archive/`、`groups/`、`preset/` 子目录
+- ✅ Gemini 客户端全面切换至 `google-genai` 新版 SDK，移除旧版 `google.generativeai`
+- ✅ 更新文档、测试脚本与转换工具以匹配新目录结构
+
+### v1.1.0 (2025-10-29)
+
+**新功能**：
+- ✅ **预设组（Preset Groups）功能**：支持批量导入多个预设
+- ✅ **预设子目录分类**：按功能分类组织预设文件（normal/roleplay/writing/groups）
+- ✅ **预设自动搜索**：不指定路径时自动在所有子目录中搜索
+- ✅ **嵌套预设组**：预设组可以引用其他预设组
+- ✅ **循环依赖检测**：防止预设组无限递归
+- ✅ **13个功能预设模块**：包括思维链、反八股、情感控制等
+- ✅ **7个预设组**：从基础到完整的预设组合
+
+**预设系统改进**：
+- 支持 `preset: xxx` 和 `preset-group: xxx` 语法
+- 子目录路径支持（如 `writing/cot`）
+- 递归展开预设引用
+- MessageEntry 增加 source 字段追踪来源
 
 ### v1.0.0 (2025-10-28)
 

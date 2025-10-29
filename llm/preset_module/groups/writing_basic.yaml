@@ -1,0 +1,7 @@
+# 基础写作预设组 - Writing Basic Preset Group
+# 用途：基础的写作质量控制
+# 包含：思维链、反八股、文风控制
+
+- preset: writing/cot                 # 思维链机制（确保逻辑一致性）
+- preset: writing/anti_cliche          # 反八股机制（避免公式化）
+- preset: writing/writing_style        # 文风控制（零度叙述、白描）

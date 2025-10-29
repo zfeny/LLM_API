@@ -22,8 +22,8 @@
 
 | 提供商 | 模块名 | 特色功能 | 文档 |
 |-------|--------|---------|------|
-| **Google Gemini** | `llm_gemini_api` | 思考模式、多模态图片理解 | [📖 查看文档](docs/gemini.md) |
-| **OpenAI 兼容** | `llm_oai_api` | 异步并发、通用兼容 | [📖 查看文档](docs/openai.md) |
+| **Google Gemini** | `gemini` | 思考模式、多模态图片理解 | [📖 查看文档](docs/gemini.md) |
+| **OpenAI 兼容** | `openai` | 异步并发、通用兼容 | [📖 查看文档](docs/openai.md) |
 
 > **OpenAI 兼容**模块支持所有遵循 OpenAI API 规范的服务：OpenAI 官方、Azure OpenAI、本地部署服务等
 
@@ -59,7 +59,7 @@ LLM_MODEL=gpt-4
 #### Gemini 模块
 
 ```python
-from llm_gemini_api import LLMClient, load_env_file
+from gemini import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()
@@ -79,7 +79,7 @@ print(response)
 #### OpenAI 兼容模块
 
 ```python
-from llm_oai_api import LLMClient, load_env_file
+from openai import LLMClient, load_env_file
 
 load_env_file()
 client = LLMClient.from_env()
@@ -154,7 +154,7 @@ generation:
 所有 API 调用自动记录到 SQLite 数据库：
 
 ```python
-from llm_gemini_api import UsageRecorder
+from gemini import UsageRecorder
 
 recorder = UsageRecorder()
 records = recorder.get_all_records()
@@ -177,8 +177,9 @@ for record in records:
 
 ```
 LLM_API/
-├── llm_gemini_api/          # Gemini 原生 API 封装
-├── llm_oai_api/             # OpenAI 兼容 API 封装
+├── llm/                # 公共基类与共享工具（含 preset_module/ 资源）
+├── gemini/             # Gemini 原生 API 封装
+├── openai/             # OpenAI 兼容 API 封装
 ├── docs/                    # 详细文档
 ├── test_run_gemini.py       # Gemini 测试示例
 ├── test_run.py              # OpenAI 测试示例
@@ -232,7 +233,7 @@ generation:
 ### 高并发服务
 
 ```python
-from llm_oai_api import AsyncLLMClient
+from openai import AsyncLLMClient
 
 async def process_batch(prompts):
     client = AsyncLLMClient.from_env()
@@ -247,7 +248,7 @@ async def process_batch(prompts):
 ### 重试配置
 
 ```python
-from llm_gemini_api import RetryConfig
+from gemini import RetryConfig
 
 retry_config = RetryConfig(
     max_retries=5,
@@ -260,7 +261,7 @@ client = LLMClient.from_env(retry_config=retry_config)
 ### 使用量记录
 
 ```python
-from llm_gemini_api import UsageRecorder
+from gemini import UsageRecorder
 
 recorder = UsageRecorder(
     db_path="custom_usage.db",
@@ -283,8 +284,8 @@ client = LLMClient.from_env(recorder=recorder)
 可以，完全独立：
 
 ```python
-from llm_gemini_api import LLMClient as GeminiClient
-from llm_oai_api import LLMClient as OpenAIClient
+from gemini import LLMClient as GeminiClient
+from openai import LLMClient as OpenAIClient
 ```
 
 ### 如何迁移代码？

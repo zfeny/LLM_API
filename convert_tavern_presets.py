@@ -5,10 +5,12 @@
     python convert_tavern_presets.py
 
 功能:
-    批量转换 llm_gemini_api/json/ 下的所有 JSON 文件为 YAML 格式，
-    输出到 llm_gemini_api/preset/ 目录。
+    批量转换 llm/preset_module/json/ 下的所有 JSON 文件为 YAML 格式，
+    输出到 llm/preset_module/json2yaml/ 目录。
 """
-from llm_gemini_api.tavern_converter import batch_convert
+from pathlib import Path
+
+from gemini.tavern_converter import batch_convert
 import logging
 
 if __name__ == "__main__":
@@ -23,9 +25,10 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # 批量转换
+    preset_module_root = Path(__file__).resolve().parent / "llm" / "preset_module"
     stats = batch_convert(
-        json_dir="llm_gemini_api/json",
-        preset_dir="llm_gemini_api/json2yaml",
+        json_dir=preset_module_root / "json",
+        preset_dir=preset_module_root / "json2yaml",
         overwrite=False  # 不覆盖已存在的文件
     )
 

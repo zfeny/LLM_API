@@ -1,0 +1,8 @@
+# 完整角色扮演预设组 - Roleplay Full Preset Group
+# 用途：长期角色扮演的完整配置
+# 包含：基础RP + 世界书管理 + 摘要机制 + 变量系统
+
+- preset-group: groups/roleplay_basic   # 引入基础RP组
+- preset: roleplay/worldbook             # 世界书管理（复杂设定）
+- preset: roleplay/summary               # 摘要机制（长对话记忆）
+- preset: roleplay/variables             # 变量系统（动态配置）

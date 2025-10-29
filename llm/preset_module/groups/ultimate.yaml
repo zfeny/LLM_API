@@ -1,0 +1,12 @@
+# 终极预设组 - Ultimate Preset Group
+# 用途：所有功能模块的组合（完全体）
+# 警告：Token消耗极大，仅适用于复杂任务
+
+- preset: normal/jailbreak_ultimate      # 破限预设
+- preset: writing/tucao                  # 吐槽机制（最强注意力）
+- preset: writing/cot                    # 思维链
+- preset: writing/anti_cliche            # 反八股
+- preset: roleplay/emotion_control       # 情感控制
+- preset: writing/writing_style          # 文风控制
+- preset: writing/dialogue_format        # 对话格式
+- preset: roleplay/personality_anchor    # 性格锚定

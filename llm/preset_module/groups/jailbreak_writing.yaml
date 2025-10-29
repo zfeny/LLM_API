@@ -1,0 +1,6 @@
+# 破限+写作预设组 - Jailbreak + Writing Preset Group
+# 用途：无限制的创意写作
+# 包含：破限 + 完整写作配置
+
+- preset: normal/jailbreak_ultimate      # 破限预设（移除限制）
+- preset-group: groups/writing_full      # 引入完整写作组

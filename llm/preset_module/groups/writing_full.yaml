@@ -1,0 +1,7 @@
+# 完整写作预设组 - Writing Full Preset Group
+# 用途：高质量写作的完整配置
+# 包含：基础写作 + 吐槽机制（最强注意力分配）+ 对话格式
+
+- preset-group: groups/writing_basic   # 引入基础写作组
+- preset: writing/tucao                 # 吐槽机制（动态注意力分配）
+- preset: writing/dialogue_format       # 对话格式规范

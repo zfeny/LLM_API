@@ -1,0 +1,6 @@
+# 破限+角色扮演预设组 - Jailbreak + Roleplay Preset Group
+# 用途：无限制的角色扮演
+# 包含：破限 + 完整RP配置
+
+- preset: normal/jailbreak_ultimate      # 破限预设（移除限制）
+- preset-group: groups/roleplay_full     # 引入完整RP组
