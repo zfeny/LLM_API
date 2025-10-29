@@ -35,6 +35,7 @@ from .recorder import UsageRecorder
 from .models import ICSMessage, ICSRequest
 from .parser import YAMLRequestParser
 from .preset_loader import load_preset
+from .tavern_converter import convert_tavern_to_preset, batch_convert
 
 __all__ = [
     # 客户端
@@ -57,4 +58,6 @@ __all__ = [
     "ICSRequest",
     "YAMLRequestParser",
     "load_preset",
+    "convert_tavern_to_preset",
+    "batch_convert",
 ]
