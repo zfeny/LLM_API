@@ -4,3 +4,4 @@ __pycache__
 .claude
 temp
 llm_api.egg-info
+llm/preset_module/archive

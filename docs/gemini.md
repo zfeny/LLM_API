@@ -76,6 +76,10 @@ GEMINI_REQUEST_TIMEOUT=120
 
 # 使用量数据库路径（可选）
 GEMINI_USAGE_DB=gemini_usage_log.db
+
+# 自定义预设目录（可选，优先于内置预设）
+# 需提供包含 preset/ 与 groups/ 子目录的路径
+# LLM_PRESET_ROOT=/path/to/preset_module
 ```
 
 ### 文本生成
@@ -124,6 +128,8 @@ generation:
 - 保持多个请求间的风格一致
 - 简化 YAML 配置
 - 通过预设组批量导入多个预设
+
+> 设置环境变量 `LLM_PRESET_ROOT` 后，可在自定义目录中放置 `preset/`、`groups/`，并覆盖同名内置预设。
 
 #### 预设目录结构
 

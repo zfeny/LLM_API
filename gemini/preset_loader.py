@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import threading
+from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import Iterable, List, Optional
 
 from llm.exceptions import LLMValidationError
 from llm.models import MessageEntry
@@ -19,12 +21,41 @@ logger = logging.getLogger(__name__)
 
 _loading_state = threading.local()
 
-PRESET_MODULE_ROOT = Path(__file__).resolve().parents[1] / "llm" / "preset_module"
-PRESET_DIR = PRESET_MODULE_ROOT / "preset"
-GROUP_DIR = PRESET_MODULE_ROOT / "groups"
+_DEFAULT_PRESET_MODULE_ROOT = Path(__file__).resolve().parents[1] / "llm" / "preset_module"
+_DEFAULT_PRESET_DIR = _DEFAULT_PRESET_MODULE_ROOT / "preset"
+_DEFAULT_GROUP_DIR = _DEFAULT_PRESET_MODULE_ROOT / "groups"
 
-for _directory in (PRESET_DIR, GROUP_DIR):
+for _directory in (_DEFAULT_PRESET_DIR, _DEFAULT_GROUP_DIR):
     _directory.mkdir(parents=True, exist_ok=True)
+
+
+@lru_cache(maxsize=1)
+def _resolve_custom_root() -> Optional[Path]:
+    """Resolve user-defined preset root from environment if available."""
+    env_value = os.environ.get("LLM_PRESET_ROOT")
+    if not env_value:
+        return None
+    candidate = Path(env_value).expanduser()
+    if not candidate.is_absolute():
+        candidate = (Path.cwd() / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+    if not candidate.exists():
+        logger.debug("LLM_PRESET_ROOT 指向的路径不存在: %s", candidate)
+    return candidate
+
+
+def _iter_search_dirs(subdir: str) -> List[Path]:
+    """Build ordered search paths, prioritising user-defined directories."""
+    dirs: List[Path] = []
+    custom_root = _resolve_custom_root()
+    if custom_root:
+        dirs.append(custom_root / subdir)
+    if subdir == "preset":
+        dirs.append(_DEFAULT_PRESET_DIR)
+    else:
+        dirs.append(_DEFAULT_GROUP_DIR)
+    return dirs
 
 
 @contextlib.contextmanager
@@ -45,27 +76,27 @@ def _loading_guard(name: str):
             delattr(_loading_state, "stack")
 
 
-def _find_preset_file(preset_name: str, preset_dir: Path) -> Path:
-    if "/" in preset_name or "\\" in preset_name:
-        preset_file = preset_dir / f"{preset_name}.yaml"
-        if preset_file.exists():
-            return preset_file
-    else:
-        preset_file = preset_dir / f"{preset_name}.yaml"
-        if preset_file.exists():
-            return preset_file
-        for yaml_file in preset_dir.rglob(f"{preset_name}.yaml"):
-            return yaml_file
+def _find_preset_file(preset_name: str, preset_dirs: Iterable[Path]) -> Path:
+    for preset_dir in preset_dirs:
+        if not preset_dir.exists():
+            continue
 
-    available_presets: List[str] = []
-    if preset_dir.exists():
-        for yaml_file in preset_dir.rglob("*.yaml"):
-            rel_path = yaml_file.relative_to(preset_dir)
-            preset_id = str(rel_path.with_suffix(""))
-            available_presets.append(preset_id.replace("\\", "/"))
+        if "/" in preset_name or "\\" in preset_name:
+            preset_file = preset_dir / f"{preset_name}.yaml"
+            if preset_file.exists():
+                return preset_file
+        else:
+            preset_file = preset_dir / f"{preset_name}.yaml"
+            if preset_file.exists():
+                return preset_file
+            match = next(preset_dir.rglob(f"{preset_name}.yaml"), None)
+            if match:
+                return match
+
+    available_presets = _collect_available_keys(preset_dirs)
 
     if available_presets:
-        hint = f"可用预设: {', '.join(sorted(available_presets)[:10])}"
+        hint = f"可用预设: {', '.join(available_presets[:10])}"
         if len(available_presets) > 10:
             hint += f" (还有{len(available_presets) - 10}个...)"
     else:
@@ -74,9 +105,27 @@ def _find_preset_file(preset_name: str, preset_dir: Path) -> Path:
     raise LLMValidationError(f"预设 '{preset_name}' 不存在。{hint}")
 
 
+def _collect_available_keys(preset_dirs: Iterable[Path]) -> List[str]:
+    """Collect available preset/group identifiers without duplicates."""
+    collected: List[str] = []
+    seen = set()
+    for directory in preset_dirs:
+        if not directory.exists():
+            continue
+        for yaml_file in directory.rglob("*.yaml"):
+            rel_path = yaml_file.relative_to(directory)
+            preset_id = str(rel_path.with_suffix("")).replace("\\", "/")
+            if preset_id in seen:
+                continue
+            collected.append(preset_id)
+            seen.add(preset_id)
+    collected.sort()
+    return collected
+
+
 def load_preset(preset_name: str) -> List[MessageEntry]:
     with _loading_guard(preset_name):
-        preset_file = _find_preset_file(preset_name, PRESET_DIR)
+        preset_file = _find_preset_file(preset_name, _iter_search_dirs("preset"))
 
         try:
             with preset_file.open("r", encoding="utf-8") as stream:
@@ -130,9 +179,7 @@ def load_preset(preset_name: str) -> List[MessageEntry]:
 
 
 def get_preset_raw_content(preset_name: str) -> str:
-    preset_file = PRESET_DIR / f"{preset_name}.yaml"
-    if not preset_file.exists():
-        raise LLMValidationError(f"预设 '{preset_name}' 不存在")
+    preset_file = _find_preset_file(preset_name, _iter_search_dirs("preset"))
     try:
         with preset_file.open("r", encoding="utf-8") as stream:
             return stream.read()
@@ -150,7 +197,7 @@ def get_preset_system_content(preset_name: str) -> str:
 
 def load_preset_group(group_name: str) -> List[MessageEntry]:
     with _loading_guard(group_name):
-        group_file = _find_preset_file(group_name, GROUP_DIR)
+        group_file = _find_preset_file(group_name, _iter_search_dirs("groups"))
 
         try:
             with group_file.open("r", encoding="utf-8") as stream:
