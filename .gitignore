@@ -3,3 +3,4 @@ _venv
 __pycache__
 .claude
 temp
+llm_api.egg-info

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-api"
+version = "0.1.0"
+description = "Unified LLM API toolkit providing Gemini and OpenAI-compatible clients with YAML-driven presets."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "LLM API Maintainers" }]
+requires-python = ">=3.9"
+dependencies = [
+    "PyYAML>=6.0",
+    "openai>=1.0.0",
+    "google-genai>=0.5.0",
+    "requests>=2.28.0",
+    "python-dotenv>=1.0.0",
+]
+keywords = ["llm", "gemini", "openai", "yaml", "api"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/LLM_API"
+Documentation = "https://github.com/yourusername/LLM_API#readme"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["gemini", "llm", "openai", "openlist_api"]
+
+[tool.setuptools.package-data]
+llm = [
+    "preset_module/**/*.yaml",
+    "preset_module/**/*.json",
+]
