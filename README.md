@@ -34,10 +34,14 @@
 ### 1. 安装依赖
 
 ```bash
-git clone https://github.com/yourusername/LLM_API.git
-cd LLM_API
-pip install -r requirements.txt
+# 建议在独立虚拟环境中安装
+python -m venv _venv && source _venv/bin/activate
+
+# 直接通过 pip 安装 Git 仓库（可替换为 SSH 或指定 tag）
+pip install "LLM-API @ git+https://github.com/zfeny/LLM_API.git"
 ```
+
+> 更多 pip 安装版用法见 `docs/gemini-pypackage.md`，其中包含更完整的环境变量/预设/记录器配置说明。
 
 ### 2. 配置环境变量
 
